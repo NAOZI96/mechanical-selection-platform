@@ -37,6 +37,7 @@ services:
     cpus: 1.0
     mem_limit: 512m
     mem_reservation: 128m
+    memswap_limit: 512m
     stop_grace_period: 20s
     healthcheck:
       test:

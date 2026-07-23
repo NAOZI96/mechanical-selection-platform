@@ -6,7 +6,7 @@
 
 - 机械计算审核：`conditional_pass`
 - 产品范围确认：`confirmed`
-- 软件验收：`conditional_pass`（本地功能、报告与资源门禁通过；目标 Docker 主机验收和恢复演练待完成）
+- 软件验收：`pass`（本地与目标 Docker 主机的功能、报告、资源、备份和恢复门禁通过）
 - 质量与安全发布：`internal_only`
 - 总发布状态：`internal_testing`
 
