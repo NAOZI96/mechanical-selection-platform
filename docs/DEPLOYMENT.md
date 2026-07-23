@@ -1,20 +1,21 @@
 # 部署设计
 
-文档版本：0.1.0  
-目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘  
-本文件仅为 Phase 0 方案，不执行安装或服务器修改
+文档版本：0.2.0
+
+目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘
+状态：Phase 3 部署候选已实现；目标机 Phase 4 盘点、容器实测和受控上线待执行
 
 ## 1. 部署边界
 
 - 使用一个 Docker Compose 项目，只包含一个 Web 服务；SQLite 是文件，不另起数据库容器。
-- Web 只运行一个 worker。建议命令形态为 `uvicorn app.main:app --workers 1`，具体超时和端口 Phase 1 冻结。
+- Web 固定运行一个 worker：`python -m uvicorn app.main:app --workers 1 --host 0.0.0.0 --port 8000`。
 - 默认只绑定宿主机 `127.0.0.1` 的未占用高位端口，由现有反向代理按独立域名/路径转发；上线前必须盘点端口、网络、磁盘和现有 Compose 项目。
 - 不修改青龙、OpenClaw、Mihomo 或其他容器的网络、端口、卷、重启策略和配置。
 - 不把约 10 GB Swap 当作可用应用内存；Swap 只用于突发保护，持续换页视为容量失败。
 
 ## 2. 容器与目录
 
-建议宿主机专用目录（实际路径上线前确认）：
+默认宿主机专用目录（实际路径在目标机只读盘点后确认）：
 
 ```text
 /opt/mechanical-selector/
@@ -29,7 +30,7 @@
 
 ## 3. Compose 资源策略
 
-Phase 1 Compose 应显式设置并验证实际生效：
+`compose.yaml` 已冻结以下候选值；Phase 4 必须在目标机验证实际生效：
 
 | 项目 | 初始建议 | 说明 |
 |---|---:|---|
@@ -37,12 +38,12 @@ Phase 1 Compose 应显式设置并验证实际生效：
 | 内存上限 | 512 MiB | 上线前依据 PDF 引擎实测；另设 128 MiB reservation（Compose 支持方式需验证）。 |
 | CPU 上限 | 1.0 CPU | 给既有服务保留资源。 |
 | PID 限制 | 128 | 防止子进程失控；PDF 方案确定后复核。 |
-| 请求体 | 256 KiB | 在反向代理与应用双层限制。 |
+| 请求体 | 1 MiB | 应用已限制；反向代理需配置相同或更小上限。 |
 | PDF 并发 | 1 | 进程内信号量；超时 30 s。 |
-| 日志 | 10 MiB × 3 | Docker `json-file` 轮转，避免填盘。 |
+| 日志 | 10 MiB × 5 | Docker `json-file` 轮转，避免填盘。 |
 | 重启 | `unless-stopped` | 配合有退避的 Docker 行为；避免外层重复守护。 |
 
-如果选用浏览器型 PDF 引擎导致 512 MiB 不稳定，应优先改用低内存 HTML/CSS-to-PDF 方案或拆减模板资源；MVP 不增加常驻 PDF 服务。中文字体只打包必要字重，并检查许可证。
+PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像包含固定 Noto Sans SC 可变字体、OFL 许可和第三方声明；更新字体必须同步更新哈希、视觉样张和模板版本。
 
 ## 4. SQLite 配置
 
@@ -64,7 +65,7 @@ Phase 1 Compose 应显式设置并验证实际生效：
 
 - Docker 日志轮转；应用日志只输出结构化摘要，不打印完整快照。
 - 报告采用内容/记录 ID 管理，生成失败的临时文件及时清理。
-- 初始建议报告目录 500 MiB 软上限；达到 80% 警告、100% 停止新 PDF 但仍允许计算。容量与保留期需用户确认。
+- 项目持久化容量上限 5 GiB；达到 85% 停止新 PDF，但仍允许计算和读取已有报告。
 - 先清理可再生 PDF，再考虑历史计算；MVP 默认不自动删除计算快照。
 - 备份需有上限与轮换策略。初始候选为每日 7 份 + 每周 4 份，但必须根据实际数据增速和恢复目标确认。
 - 监控系统盘剩余空间；建议剩余低于 5 GiB 或 15%（取较大者）时停止 PDF/备份写入并报警，阈值上线前结合现有服务确认。
@@ -79,19 +80,39 @@ Phase 1 Compose 应显式设置并验证实际生效：
 
 ## 8. 发布流程
 
-1. 在非生产环境构建固定版本镜像并完成单元、金样、API、PDF 和资源测试。
+1. 在非生产环境构建固定版本镜像并完成单元、金样、API、PDF 和资源测试；记录镜像 ID/摘要。
 2. 盘点目标机 CPU/内存/Swap/磁盘、端口、Docker 网络及既有服务基线；任何冲突先停止发布。
 3. 备份数据库和当前 Compose/环境配置；记录镜像摘要、应用版本和模型版本。
-4. 先执行迁移预检；生产迁移保持可回滚且不做破坏性自动变更。
+4. 新库或已有库都先运行受控迁移命令；已有库必须指定备份目录。生产 Web 设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动时只接受已完整迁移的数据库。
 5. 启动单个新容器，检查 live/ready、日志、内存、数据库写读和一份受控 PDF。
 6. 配置代理路由并小流量验证；观察至少一个约定窗口再完成发布。
 7. 失败时恢复旧镜像/配置；数据库发生不兼容迁移时按已演练备份恢复。
 
 不使用会影响其他 Compose 项目的全局清理命令，不执行 `docker system prune`，不复用含义不明的卷或网络。
 
-## 9. 备份与恢复目标（待确认）
+推荐命令顺序（只操作本项目 Compose）：
 
-- 候选 RPO：24 小时；候选 RTO：2 小时。
+```bash
+mkdir -p data reports backups
+sudo chown -R 10001:10001 data reports backups
+docker compose build web
+docker compose run --rm web python -m app.persistence.migrate --apply --backup-dir /backups
+docker compose run --rm web python -m app.persistence.migrate --check
+docker compose up -d web
+docker compose ps
+curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/live
+curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
+```
+
+首次新库没有可备份文件；迁移器直接建库。已有非空库若未提供 `--backup-dir` 会拒绝执行。不得通过临时开启生产自动迁移绕过该门禁。
+
+## 9. 备份与恢复目标（C-08 已确认）
+
+- RPO 24 小时；RTO 4 小时。
+- 普通记录保留 90 天、PDF 30 天；每日备份 7 份、每周备份 8 份，长期保留项目不自动删除。
+- 项目持久化上限 5 GB：70% 告警，85% 停止新 PDF。
+- 系统盘 75% 告警，85% 停止 PDF/上传，90% 停止新增历史，只保留健康检查和清理。
+- 单请求 JSON 1 MB、单 PDF 20 MB；日志单文件 10 MB、最多 5 个轮转。自动清理必须留日志。
 - 备份范围：SQLite 一致性备份、迁移版本、部署配置（去除秘密）、报告清单；重要 PDF 可选纳入。
 - 至少每季度在隔离目录做恢复演练，并核对记录数、抽样 input hash、报告生成和应用 ready。
 

@@ -33,9 +33,7 @@ def capacity_for_uniform_turns(
 
     total_m = 0.0
     for layer in range(1, layer_limit + 1):
-        turn_length_m = centerline_turn_length(
-            core_diameter_m, rope_diameter_m, pitch_m, layer
-        )
+        turn_length_m = centerline_turn_length(core_diameter_m, rope_diameter_m, pitch_m, layer)
         usable_turns = turns_per_layer - dead_wraps if layer == 1 else turns_per_layer
         total_m += max(0, usable_turns) * turn_length_m
     return total_m
@@ -53,8 +51,7 @@ def required_uniform_turns(
     """Solve the minimum integer turns without an unbounded loop."""
 
     turn_lengths = tuple(
-        centerline_turn_length(core_diameter_m, rope_diameter_m, pitch_m, layer)
-        for layer in range(1, layer_limit + 1)
+        centerline_turn_length(core_diameter_m, rope_diameter_m, pitch_m, layer) for layer in range(1, layer_limit + 1)
     )
     numerator = target_capacity_m + dead_wraps * turn_lengths[0]
     raw_turns = numerator / sum(turn_lengths)
@@ -125,10 +122,7 @@ def search_drum_candidates(
                 capacity_margin_m=capacity_m - target_capacity_m,
                 outer_envelope_diameter_m=outer_envelope_diameter_m,
                 envelope_proxy_m3=envelope_proxy_m3,
-                explanation=(
-                    f"候选层数={layer_limit}，最少完整圈数={turns}；"
-                    "按面长×外包络直径²的几何代理量排序。"
-                ),
+                explanation=(f"候选层数={layer_limit}，最少完整圈数={turns}；按面长×外包络直径²的几何代理量排序。"),
             )
         )
 

@@ -1,0 +1,12 @@
+.git
+.github
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+backups
+data
+docs
+reports
+tests
+tmp

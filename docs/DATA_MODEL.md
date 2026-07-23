@@ -1,6 +1,14 @@
 # 数据模型设计
 
-文档版本：0.1.0  
+## C-08/C-09 冻结补充（snapshot schema v3 / report context schema v2）
+
+输入新增/确认拉力与速度位置、拉力类型、滑轮倍率/效率、实际槽距/槽数、死圈、安装预留、绳型/结构/材料、载荷谱、D/d、环境、制动轴/反向效率、工作制/启动次数/供电和功率系列。`dead_wrap_count` 兼容读取旧名 `dead_wraps`。
+
+`source_status` 固定为 `project_default|user_input|standard_confirmed|manufacturer_data|pending_confirmation`。快照保存原始输入、SI 输入、未舍入结果、警告、假设、公式步骤、计算模型版本、报告模板版本、持久化报告上下文和生成时间；展示值不是权威存储。
+
+警告包含 `code`、`severity`（`info|warning|high|blocking`）、`title`、`message`、`affected_result`、`recommended_action`。发布门禁只存状态：机械计算、产品范围、软件验收、质量安全和总发布状态；不存人员姓名或计划/实际日期。
+
+文档版本：0.2.0
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 
@@ -21,7 +29,7 @@ calculation
 | `id` | TEXT | PK | UUID。 |
 | `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`。 |
 | `module_version` | TEXT | NOT NULL | SemVer 字符串。 |
-| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.0.0`。 |
+| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.1.0`。 |
 | `status` | TEXT | NOT NULL, CHECK | `completed` / `completed_with_warnings`。校验失败不建成功记录。 |
 | `input_original_json` | TEXT | NOT NULL | 原始值、显示单位和用户语义选择。 |
 | `input_si_json` | TEXT | NOT NULL | 规范化 SI 输入。 |
@@ -29,7 +37,10 @@ calculation
 | `results_json` | TEXT | NOT NULL | 未格式化结果、单位、等级、公式 ID。 |
 | `steps_json` | TEXT | NOT NULL | 公式文本、符号、SI 代入值、顺序和未舍入结果。 |
 | `warnings_json` | TEXT | NOT NULL | 稳定代码、严重度、消息、影响字段。 |
-| `snapshot_schema_version` | INTEGER | NOT NULL | JSON 快照结构版本，初始为 1。 |
+| `disclaimer_json` | TEXT | NOT NULL | 本次快照采用的免责声明；旧记录读取时不得替换为当前文案。 |
+| `report_template_version` | TEXT | NOT NULL | 生成报告上下文时采用的模板版本。 |
+| `report_context_json` | TEXT | NULL | 计算时物化的报告 DTO；旧迁移记录允许为空并由兼容读取路径映射。 |
+| `snapshot_schema_version` | INTEGER | NOT NULL | JSON 快照结构版本；当前写入 3。 |
 | `input_hash` | TEXT | NOT NULL | 规范化输入 + 模型版本的 SHA-256，用于诊断/可选去重。 |
 | `created_at` | TEXT | NOT NULL, index | UTC ISO 8601。 |
 | `request_id` | TEXT | NOT NULL | 日志关联。 |
@@ -52,7 +63,7 @@ calculation
 | `completed_at` | TEXT | NULL | UTC。 |
 | `error_code` | TEXT | NULL | 受控错误代码，不保存敏感堆栈。 |
 
-唯一性建议：`(calculation_id, format, template_version)`；生成使用临时文件和原子改名，只有 `ready` 可下载。
+唯一性约束：`(calculation_id, format, template_version)`；生成使用临时文件和原子改名，只有 `ready` 可下载。数据库触发器保证 `ready` 状态的 path、hash、size、completed_at 均非空。
 
 ## 4. 可选 `audit_events` 表
 
@@ -103,7 +114,7 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 
 - 使用轻量迁移工具或有序 SQL 迁移；每次启动只检查，不在未经备份的生产库上做破坏性自动迁移。
 - 迁移前执行 SQLite 在线备份并记录应用/模型版本；恢复演练包含主库、WAL/SHM 处理和文件权限。
-- 计算记录与 PDF 保留策略需要用户确认。建议先按容量设置软阈值并报警，不自动删除；若未来启用清理，必须明确期限并先删除可再生 PDF，保留计算快照。
+- 当前不自动删除计算记录或 PDF；项目持久化容量上限 5 GiB，达到 85% 后停止生成新 PDF。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
 - 备份至少包含 SQLite 一致性备份与报告清单；PDF 可由快照重建，但模板版本/字体变化可能改变二进制，因此重要报告需单独归档。
 
 ## 8. 数据模型验收

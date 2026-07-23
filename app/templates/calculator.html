@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="绞车与卷筒确定性计算及初步选型工具">
+  <title>绞车与卷筒计算｜机械智选</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/calculator.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="机械智选首页">
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Design Assistant</small></span>
+    </a>
+    <div class="header-status"><span></span>计算模型 winch_drum.calc.1.1.0</div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">WINCH DRUM · PHASE 2</p>
+        <h1>绞车与卷筒计算</h1>
+        <p>使用确定性公式完成载荷、功率、逐层容绳量、转速、参考速比和静态制动力矩计算。</p>
+      </div>
+      <aside class="scope-note">
+        <strong>工程边界</strong>
+        <p>结果用于方案比较和初步选型，不包含钢丝绳强度、卷筒结构、疲劳、动态冲击及采购级型号确认。</p>
+      </aside>
+    </section>
+
+    <div class="workspace-grid">
+      <form id="winch-form" class="input-panel" novalidate>
+        <div class="panel-heading">
+          <div><p class="step-label">01 / 输入</p><h2>计算参数</h2></div>
+          <button type="button" class="button button--ghost" id="load-golden-sample">载入测试金样</button>
+        </div>
+        <p class="sample-warning">测试金样仅用于验证页面和公式，不是项目推荐参数。所有系数来源默认标记为“待确认”。</p>
+
+        <fieldset>
+          <legend>作业需求</legend>
+          <div class="field-grid">
+            <label class="field"><span>输入拉力 <em>kN</em></span><input name="rated_line_pull_kn" type="number" min="0.000001" step="any" required></label>
+            <label class="field"><span>拉力位置</span><select name="force_input_location"><option value="load_end">载荷端</option><option value="drum_rope_end">卷筒绳端</option></select></label>
+            <label class="field"><span>拉力类型</span><select name="force_input_type"><option value="rated">额定拉力</option><option value="design">设计拉力</option><option value="maximum">最大拉力</option></select></label>
+            <label class="field"><span>钢丝绳直径 <em>mm</em></span><input name="rope_diameter_mm" type="number" min="0.000001" step="any" required><small>仅用于几何计算，不代表已完成钢丝绳强度校核。</small></label>
+            <label class="field"><span>输入速度 <em>m/min</em></span><input name="rope_speed_m_per_min" type="number" min="0.000001" step="any" required></label>
+            <label class="field"><span>速度位置</span><select name="speed_input_location"><option value="load_end">载荷端</option><option value="drum_rope_end">卷筒绳端</option></select></label>
+            <label class="field"><span>目标容绳量 <em>m</em></span><input name="target_rope_capacity_m" type="number" min="0.000001" step="any" required><small>不含未声明的额外储备长度。</small></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>驱动与工况</legend>
+          <div class="field-grid">
+            <label class="field"><span>使用系数 K<sub>s</sub></span><input name="service_factor" type="number" min="1" step="any" required><small>额定拉力输入时只作用一次形成设计拉力；静态制动以该设计拉力为基准，再单独使用制动安全系数。</small></label>
+            <label class="field"><span>传动总效率 η</span><input name="total_efficiency" type="number" min="0.000001" max="1" step="any" required><small>取值范围 (0, 1]；当前为正向总效率。</small></label>
+            <label class="field"><span>电机额定转速 <em>r/min</em></span><input name="motor_rated_speed_rpm" type="number" min="0.000001" step="any" required></label>
+            <label class="field"><span>电机类型</span><input name="motor_type" type="text" maxlength="64" required><small>示例：三相异步电动机。不会自动完成品牌或型号选择。</small></label>
+            <label class="field field--wide"><span>工作级别 / 工况说明</span><input name="duty_class" type="text" maxlength="64" required><small>当前仅记录和提示，不参与未经批准的自动系数计算。</small></label>
+            <label class="field"><span>电机工作制</span><select name="motor_duty_type"><option value="S3">S3</option><option value="S1">S1</option><option value="S2">S2</option><option value="S4">S4</option><option value="S5">S5</option></select></label>
+            <label class="field"><span>负载持续率 <em>%</em></span><input name="duty_cycle_percent" type="number" min="0.000001" max="100" step="any" value="40" required></label>
+            <label class="field"><span>启动次数 <em>次/h</em></span><input name="starts_per_hour" type="number" min="0" step="1" value="60" required></label>
+            <label class="field"><span>电压 <em>V</em></span><input name="supply_voltage" type="number" min="0.000001" step="any" value="380" required></label>
+            <label class="field"><span>频率 <em>Hz</em></span><input name="supply_frequency" type="number" min="0.000001" step="any" value="50" required></label>
+            <label class="field"><span>电机功率系列</span><select name="motor_power_series_id"><option value="project_default_iec_kw">项目冻结 IEC kW 档位表</option></select><small>仅用于稳态功率向上选档，不代表启动和热容量通过。</small></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>卷筒几何</legend>
+          <div class="field-grid">
+            <label class="field"><span>卷筒芯径 <em>mm，可选</em></span><input name="drum_core_diameter_mm" type="number" min="0.000001" step="any"><small>优先使用用户给定值；缺失时需要经批准的 D/d 比或保持待校核。</small></label>
+            <label class="field"><span>批准的 D/d 比 <em>可选</em></span><input name="approved_core_ratio" type="number" min="0.000001" step="any"><small>只有存在可追溯依据时填写，不提供通用默认值。</small></label>
+            <label class="field"><span>项目初选 D/d 比</span><input name="minimum_dd_ratio" type="number" min="1.000001" step="any" value="20" required><small>冻结的项目初选默认值；无正式标准依据时只产生 preliminary 结果和警告。</small></label>
+            <label class="field"><span>卷筒面长 <em>mm，可选</em></span><input name="drum_face_length_mm" type="number" min="0.000001" step="any"><small>若留空且芯径可用，程序按容量反求初选面长。</small></label>
+            <label class="field"><span>最大层数</span><input name="max_layers" type="number" min="1" max="100" step="1" required></label>
+            <label class="field"><span>排绳节距系数 K<sub>p</sub></span><input name="pitch_factor" type="number" min="1" step="any" required><small>节距 p = Kp × 绳径；来源必须记录。</small></label>
+            <label class="field"><span>实际槽距 <em>mm，可选</em></span><input name="actual_groove_pitch_mm" type="number" min="0.000001" step="any"></label>
+            <label class="field"><span>实际可用槽数 <em>可选</em></span><input name="actual_usable_groove_count" type="number" min="1" max="100" step="1"></label>
+            <label class="field"><span>单侧余量 <em>mm</em></span><input name="side_margin_mm" type="number" min="0" step="any" required><small>两侧各扣除一次；有效面宽 = 面长 − 2 × 单侧余量。</small></label>
+            <label class="field"><span>固定死圈</span><input name="dead_wraps" type="number" min="2" max="8" step="1" required><small>项目初选默认值，可修改，不代表标准强制值。</small></label>
+            <label class="field"><span>绳端安装预留 <em>m</em></span><input name="termination_allowance_m" type="number" min="0" step="any" value="0" required></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>绳索、载荷与环境记录</legend>
+          <div class="field-grid">
+            <label class="field"><span>绳索类型</span><input name="rope_type" type="text" maxlength="64" value="galvanized_steel_wire_rope" required></label>
+            <label class="field"><span>绳索结构</span><input name="rope_construction" type="text" maxlength="128" value="6x36_IWRC" required></label>
+            <label class="field"><span>绳索材料</span><input name="rope_material" type="text" maxlength="128" value="galvanized_steel" required></label>
+            <label class="field"><span>载荷谱说明</span><input name="load_spectrum" type="text" maxlength="128" value="medium_load" required></label>
+            <label class="field field--wide"><span>环境类型</span><input name="environment_type" type="text" maxlength="128" value="indoor_normal" required><small>这些字段只记录工况；当前模型不据此自动生成钢丝绳强度、寿命或环境合格结论。</small></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>倍率与制动</legend>
+          <div class="field-grid">
+            <label class="field"><span>滑轮倍率</span><input name="reeving_ratio" type="number" min="1" step="any" required><small>只用于理想载荷端提示，不重复改变主绳张力和功率。</small></label>
+            <label class="field"><span>滑轮效率</span><input name="pulley_efficiency" type="number" min="0.000001" max="1" step="any" value="0.95" required></label>
+            <label class="field"><span>制动安全系数 K<sub>b</sub></span><input name="brake_safety_factor" type="number" min="1" step="any" required></label>
+            <label class="field"><span>制动拉力基准</span><select name="brake_basis_type"><option value="design_force">设计绳张力（冻结口径）</option></select></label>
+            <label class="field"><span>制动安装轴</span><select name="brake_installation_shaft"><option value="drum_or_low_speed">卷筒轴/低速轴</option><option value="motor_high_speed">电机高速轴</option><option value="other">其他轴</option></select></label>
+            <label class="field"><span>传动反驱类型</span><select name="transmission_backdrive_type"><option value="reversible">允许反驱</option><option value="self_locking">自锁</option><option value="worm">蜗杆</option><option value="non_reversible">不可逆</option><option value="backdrive_prohibited">禁止反驱</option></select></label>
+            <label class="field"><span>反向效率 <em>可选</em></span><input name="backdrive_efficiency" type="number" min="0.000001" max="1" step="any"><small>不得使用无依据默认值；留空时高速轴制动力矩保持待校核。</small></label>
+            <label class="check-field field--wide"><input name="allow_forward_efficiency_as_reverse_approx" type="checkbox"><span><strong>允许用正向总效率近似反向效率</strong><small>仅在已获得工程批准时勾选；否则高速轴制动力矩保持“待校核”。</small></span></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="source-fieldset">
+          <legend>参数来源状态</legend>
+          <div class="field-grid">
+            <label class="field"><span>使用系数来源</span><select name="source_service_factor"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>节距系数来源</span><select name="source_pitch_factor"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>制动系数来源</span><select name="source_brake_safety_factor"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>D/d 依据来源</span><select name="source_approved_core_ratio"><option value="pending_confirmation">待确认</option><option value="user_input">用户输入</option><option value="standard_confirmed">标准已确认</option></select></label>
+            <label class="field"><span>项目初选 D/d 来源</span><select name="source_minimum_dd_ratio"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="standard_confirmed">标准已确认</option></select></label>
+            <label class="field"><span>滑轮效率来源</span><select name="source_pulley_efficiency"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="manufacturer_data">制造商数据</option></select></label>
+            <label class="field"><span>固定死圈来源</span><select name="source_dead_wrap_count"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="standard_confirmed">标准已确认</option></select></label>
+            <label class="field"><span>反向效率来源</span><select name="source_backdrive_efficiency"><option value="pending_confirmation">待确认</option><option value="user_input">用户输入</option><option value="manufacturer_data">制造商数据</option></select></label>
+          </div>
+        </fieldset>
+
+        <div id="form-errors" class="error-box" role="alert" aria-live="assertive" hidden></div>
+        <div class="form-actions">
+          <button type="submit" class="button button--primary" id="calculate-button">保存快照并计算</button>
+          <p>成功计算会写入本地 SQLite 快照；报告读取快照，不重新计算。</p>
+        </div>
+      </form>
+
+      <section class="result-panel" id="results" aria-live="polite">
+        <div class="empty-state" id="empty-state"><span>Σ</span><h2>等待计算</h2><p>填写左侧参数后，结果、警告和逐层容绳明细将在这里显示。</p></div>
+        <div id="result-content" hidden>
+          <div class="panel-heading result-heading"><div><p class="step-label">02 / 结果</p><h2>计算快照</h2></div><a id="report-link" class="button button--ghost" href="#">打开报告</a></div>
+          <div id="result-meta" class="result-meta"></div>
+          <section><div class="section-title"><h3>工程警告</h3><span id="warning-count"></span></div><ul id="warning-list" class="warning-list"></ul></section>
+          <section><div class="section-title"><h3>关键结果</h3><span>未作展示舍入回写</span></div><div id="key-results" class="result-cards"></div></section>
+          <section><div class="section-title"><h3>逐层容绳明细</h3><span>绳中心线螺旋长度</span></div><div class="table-wrap"><table><thead><tr><th>层</th><th>工作直径 m</th><th>每圈长度 m</th><th>完整圈</th><th>使用圈</th><th>本层使用 m</th><th>累计使用 m</th></tr></thead><tbody id="layer-rows"></tbody></table></div></section>
+          <section><div class="section-title"><h3>假设与来源</h3></div><ul id="assumption-list" class="assumption-list"></ul></section>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer><p>计算模型 <strong>winch_drum.calc.1.1.0</strong> · 结果必须经过适用标准、结构强度和工程审批复核。</p></footer>
+</body>
+</html>

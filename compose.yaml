@@ -1,0 +1,57 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mechanical-selector:local
+    restart: unless-stopped
+    init: true
+    environment:
+      DESIGN_AGENT_DB_PATH: /data/app.sqlite3
+      DESIGN_AGENT_REPORTS_DIR: /reports
+      DESIGN_AGENT_AUTO_MIGRATE: "false"
+      DESIGN_AGENT_PDF_TIMEOUT_SECONDS: "30"
+      DESIGN_AGENT_PDF_MAX_SIZE_BYTES: "20971520"
+      DESIGN_AGENT_PERSISTENT_CAPACITY_BYTES: "5368709120"
+      DESIGN_AGENT_PERSISTENT_STOP_FRACTION: "0.85"
+    ports:
+      - "127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}:8000"
+    volumes:
+      - type: bind
+        source: ${DESIGN_AGENT_DATA_DIR:-./data}
+        target: /data
+      - type: bind
+        source: ${DESIGN_AGENT_REPORTS_DIR:-./reports}
+        target: /reports
+      - type: bind
+        source: ${DESIGN_AGENT_BACKUPS_DIR:-./backups}
+        target: /backups
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: 1.0
+    mem_limit: 512m
+    mem_reservation: 128m
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"

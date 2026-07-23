@@ -1,7 +1,7 @@
 # 系统架构设计
 
-文档版本：0.1.0  
-适用阶段：Phase 0 设计；指导 Phase 1 实现
+文档版本：0.2.0
+适用阶段：Phase 3 部署候选
 
 ## 1. 架构目标与约束
 
@@ -26,31 +26,33 @@
 
 边界原则：路由不包含工程公式；计算内核不访问数据库、文件、网络、时钟或大模型；保存成功后报告只读取快照，不重新执行计算。
 
-## 3. 建议代码结构（Phase 1）
+## 3. 当前代码结构
 
 ```text
 app/
   main.py
-  core/             # 配置、错误、单位、精度、版本、注册表
-  web/              # HTML 路由、API 路由、依赖、安全
-  services/         # calculate、snapshot、report
+  core/             # 环境配置与应用级公共设施
+  services/         # 确定性计算编排与不可变快照组装
   modules/
-    base.py         # 模块协议
+    registry.py     # 可注入的显式模块注册表
     winch_drum/
-      module.py
-      schemas.py
+      schema.py
       calculator.py
-      warnings.py
-      report.py
-      formulas.py
-  persistence/      # SQLite repositories、迁移
+      optimizer.py
+      assumptions.py
+      reporting.py
+  persistence/      # SQLite 连接、迁移、repository 与在线备份
+  reporting/        # 不可变 DTO、HTML/PDF 映射、ReportLab 渲染和受限子进程
   templates/
   static/
+  assets/fonts/     # 固定 Noto Sans SC 字体与许可
+scripts/            # 资源基线与部署辅助检查
 tests/
 docs/
 data/
-reports/
 ```
+
+页面使用 Jinja2 外壳和原生 JavaScript 调用统一 API；公式、SI 换算、工程校验和警告只存在于后端模块。计算事务同时物化并保存报告 DTO；HTML 与 PDF 只消费该 DTO。PDF 由受超时控制的单独 Python 子进程生成，完成后原子写入 `reports/`，SQLite 只保存状态、相对路径、哈希和大小。
 
 ## 4. 模块注册契约
 
@@ -87,11 +89,11 @@ reports/
 5. `calculate()` 产生全精度结果、逐步公式记录和结果分类。
 6. 警告引擎追加稳定代码；应用层组装不可变快照。
 7. 一个短事务保存计算主记录与 JSON 快照。
-8. 返回 JSON 或渲染 HTML。PDF 请求从快照构建，限并发 1，采用临时文件后原子改名。
+8. 返回 JSON 或渲染 HTML。PDF 请求从持久化报告 DTO 构建，限并发 1，采用临时文件、大小/容量校验、SHA-256 后原子改名。
 
 ## 6. 精度、版本与确定性
 
-- 内核使用 Python `Decimal` 或经测试的 IEEE-754 float；Phase 1 必须择一并在模型版本中冻结。建议几何与功率使用 float、比较采用明确容差，持久化保留足够有效位；不得对中间结果作展示舍入。
+- 内核冻结使用经边界与溢出测试的 IEEE-754 float；几何整圈比较采用明确的 `1e-12` 量级容差，持久化保留未舍入值，不允许 NaN/Infinity。
 - 展示舍入集中在报告格式层；JSON 可同时返回 raw value 和 formatted value。
 - 变更公式、单位语义、默认值、边界、舍入前算法或警告判定时，递增 `calculation_model_version`。
 - 仅修改文案/样式且数值语义不变，可只递增应用版本。
@@ -102,7 +104,7 @@ reports/
 - 单 Web worker，避免多进程内存复制与 SQLite 写争用。
 - 启用 WAL、foreign keys、busy timeout；事务短小，计算和 PDF 渲染不放在事务内。
 - 每请求独立连接/会话；失败回滚。
-- PDF 通过进程内 `Semaphore(1)` 限制并发。单 worker 重启后不承诺排队任务恢复；MVP 使用同步、受超时保护的生成方式。
+- PDF 通过进程内 `BoundedSemaphore(1)` 限制并发；额外请求立即返回受控 `429`。单 worker 同步等待受 30 s 超时保护的渲染子进程，失败不会删除计算快照。
 - 不将大型 PDF 二进制写入 SQLite，只保存相对路径、哈希、大小和状态。
 
 ## 8. 安全与故障隔离
@@ -122,9 +124,9 @@ reports/
 
 ## 10. 资源预算
 
-建议初始限制（上线前以压测调整）：Web 容器内存上限 512 MiB、预留 128 MiB；CPU 上限 1 核；单 worker；PDF 并发 1、超时 30 s；请求体上限 256 KiB。Docker JSON 日志每文件 10 MiB、最多 3 个。报告保留期与总容量需确认，默认设计目标为 500 MiB 软上限。应用不主动占用 Swap 作为容量设计的一部分。
+冻结部署候选限制：Web 容器内存上限 512 MiB、预留 128 MiB；CPU 上限 1 核；单 worker；PDF 并发 1、超时 30 s；请求体上限 1 MiB；单 PDF 20 MiB；持久化总容量 5 GiB、85% 停止新 PDF。Docker JSON 日志每文件 10 MiB、最多 5 个。应用不主动占用 Swap 作为容量设计的一部分。
 
-资源超限时优先拒绝/延迟 PDF，不影响计算页面与同机服务。任何上限都必须在目标主机上结合现有服务基线复核。
+本地基线中，1000 次计算 p95 30.489 ms、连续 20 份 PDF p95 594.880 ms，父进程与 PDF 子进程合计峰值 RSS 149,626,880 B；5 个并发 PDF 请求只有 1 个渲染，其余受控 `429`。资源超限时优先拒绝 PDF，不影响计算页面与同机服务；这些值仍须在目标 Docker 主机结合现有服务复核。
 
 ## 11. 架构验收
 

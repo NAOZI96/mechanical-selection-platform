@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ report.title }}｜{{ report.calculation_id }}</title>
+  <link rel="stylesheet" href="/static/report.css">
+</head>
+<body>
+  <main>
+    <header class="report-header">
+      <p class="eyebrow">MECHANICAL DESIGN CALCULATION</p>
+      <h1>{{ report.title }}</h1>
+      <dl class="metadata">
+        <div><dt>计算 ID</dt><dd>{{ report.calculation_id }}</dd></div>
+        <div><dt>模块</dt><dd>{{ report.module_id }} / {{ report.module_version }}</dd></div>
+        <div><dt>计算模型版本</dt><dd>{{ report.calculation_model_version }}</dd></div>
+        <div><dt>报告模板版本</dt><dd>{{ report.report_template_version }}</dd></div>
+        <div><dt>计算时间（UTC）</dt><dd>{{ report.calculation_created_at }}</dd></div>
+        <div><dt>状态</dt><dd>{{ report.status }}</dd></div>
+      </dl>
+      <a class="download-link" href="/api/v1/calculations/{{ report.calculation_id }}/report.pdf">下载 PDF</a>
+    </header>
+
+    <section>
+      <h2>工程警告</h2>
+      {% if report.warnings %}
+      <ul class="warning-list">
+        {% for warning in report.warnings %}
+        <li class="warning warning--{{ warning.severity }}">
+          <strong>{{ warning.code }} / {{ warning.severity }}</strong>
+          <span>{{ warning.message }}</span>
+          <small>{{ warning.recommended_action }}</small>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>本快照没有记录警告。</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>关键结果</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>项目</th><th>值</th><th>单位</th><th>等级</th><th>公式</th></tr></thead>
+          <tbody>
+          {% for item in report.result_rows %}
+            <tr>
+              <td>{{ item.label }}<small class="field-key">{{ item.key }}</small></td>
+              <td>{{ item.display_value }}</td>
+              <td>{{ item.unit }}</td>
+              <td>{{ item.classification }}</td>
+              <td>{{ item.formula_ids | join('、') }}</td>
+            </tr>
+            {% if item.reason %}<tr class="reason-row"><td colspan="5">{{ item.reason }}</td></tr>{% endif %}
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>用户原始输入</h2>
+      <div class="table-wrap">
+        <table><thead><tr><th>字段</th><th>值</th></tr></thead><tbody>
+        {% for item in report.original_inputs %}
+          <tr><td>{{ item.label }}</td><td>{{ item.display_value }}</td></tr>
+        {% endfor %}
+        </tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>SI 标准化输入</h2>
+      <div class="table-wrap">
+        <table><thead><tr><th>字段</th><th>值</th></tr></thead><tbody>
+        {% for item in report.si_inputs %}
+          <tr><td>{{ item.label }}</td><td>{{ item.display_value }}</td></tr>
+        {% endfor %}
+        </tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>逐层容绳量</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>层</th><th>中心直径 m</th><th>每圈长度 m</th><th>完整圈</th><th>可用圈</th><th>使用长度 m</th><th>累计使用 m</th></tr></thead>
+          <tbody>
+          {% for layer in report.layer_rows %}
+            <tr>
+              <td>{{ layer.layer_number }}</td>
+              <td>{{ layer.center_diameter_m }}</td>
+              <td>{{ layer.turn_length_m }}</td>
+              <td>{{ layer.full_turns }}</td>
+              <td>{{ layer.usable_turns }}</td>
+              <td>{{ layer.used_capacity_m }}</td>
+              <td>{{ layer.cumulative_used_capacity_m }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>公式与换算审计步骤</h2>
+      <ol class="steps">
+      {% for step in report.steps %}
+        <li><strong>{{ step.formula_id }}</strong><span>{{ step.expression }}</span><code>{{ step.variables }}</code><span>= {{ step.result_value }} {{ step.unit }}</span></li>
+      {% endfor %}
+      </ol>
+    </section>
+
+    <section>
+      <h2>默认值、来源与假设</h2>
+      <ul class="assumptions">
+      {% for item in report.assumptions %}
+        <li><strong>{{ item.key }} / {{ item.source_status }}</strong><span>{{ item.note }}</span></li>
+      {% endfor %}
+      </ul>
+    </section>
+
+    <section>
+      <h2>未完成专项校核</h2>
+      <p>{{ report.unchecked_items | join('、') }}</p>
+    </section>
+
+    <footer class="disclaimer">
+      <strong>免责声明</strong>
+      <p>本报告只读取计算时保存的不可变报告上下文，不重新执行工程公式。{{ report.disclaimer }}</p>
+    </footer>
+  </main>
+</body>
+</html>
