@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.2.0
+文档版本：0.3.0
 API 版本：`v1`  
 首发模块：`winch_drum`
 
@@ -22,16 +22,16 @@ API 版本：`v1`
 
 ### 2.1A Web 页面
 
-- `GET /`：首发 `winch_drum` 中文计算页面。
-- `GET /modules/winch_drum`：同一计算页面的稳定模块路径。
+- `GET /`：机械智选平台主页；展示运行时已注册模块和只读规划目录。
+- `GET /modules/{module_id}`：已注册模块的统一页面入口；当前 `winch_drum` 使用 `/modules/winch_drum`。
 
-页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
+主页的“可用”状态和页面入口来自运行时注册表；规划模块不进入此 API，也不生成伪入口。模块页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
 
 ### 2.2 模块发现
 
 `GET /api/v1/modules`
 
-返回已启用模块的 `module_id`、名称、模块版本、计算模型版本、说明和可用状态。
+返回已启用模块的 `module_id`、名称、模块版本、计算模型版本、说明、分类、页面入口和可用状态。`entry_path` 仅在模块注册了受信任的 Jinja2 页面模板时返回，否则为 `null`。
 
 `GET /api/v1/modules/{module_id}/schema`
 

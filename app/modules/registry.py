@@ -32,6 +32,13 @@ class ModuleDefinition:
     result_model: type[BaseModel]
     calculate: Callable[[BaseModel], BaseModel]
     build_report_context: Callable[[dict[str, object]], ReportContext]
+    summary: str = "确定性机械工程计算模块"
+    category: str = "工程计算"
+    web_template: str | None = None
+    icon_key: str = "module"
+    capabilities: tuple[str, ...] = ()
+    catalog_order: int = 100
+    featured: bool = False
 
 
 class ModuleRegistry:
@@ -53,6 +60,18 @@ class ModuleRegistry:
             raise TypeError("模块 calculate 必须可调用")
         if not callable(module.build_report_context):
             raise TypeError("模块 build_report_context 必须可调用")
+        if not module.summary.strip() or not module.category.strip():
+            raise ValueError("模块摘要和分类不能为空")
+        if module.web_template:
+            normalized_template = module.web_template.replace("\\", "/")
+            if (
+                normalized_template.startswith("/")
+                or ".." in normalized_template.split("/")
+                or not normalized_template.endswith(".html")
+            ):
+                raise ValueError("模块页面模板必须是 templates 目录内的 HTML 相对路径")
+        if module.catalog_order < 0:
+            raise ValueError("模块目录顺序不能为负数")
         self._modules[module.module_id] = module
 
     def get(self, module_id: str) -> ModuleDefinition:
@@ -110,5 +129,12 @@ register_module(
         result_model=WinchDrumResult,
         calculate=_calculate_registered_winch,
         build_report_context=build_winch_drum_report_context,
+        summary="完成拉力、功率、逐层容绳、转速速比与静态制动力矩的可追溯计算。",
+        category="起重与牵引",
+        web_template="calculator.html",
+        icon_key="winch",
+        capabilities=("逐层离散容绳", "电机功率初选", "静态制动参考", "HTML / PDF 报告"),
+        catalog_order=10,
+        featured=True,
     )
 )

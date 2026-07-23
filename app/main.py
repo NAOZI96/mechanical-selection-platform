@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app.core.config import PROJECT_ROOT, Settings
+from app.modules.catalog import build_module_catalog
 from app.modules.registry import ModuleRegistry, default_registry
 from app.persistence.database import database_is_ready, initialize_database
 from app.persistence.repository import CalculationRepository
@@ -35,7 +36,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
         yield
 
-    app = FastAPI(title="机械智选", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="机械智选", version="0.3.0", lifespan=lifespan)
     app.state.settings = app_settings
     repository = CalculationRepository(app_settings.database_path)
     service = CalculationService(repository, active_registry.get)
@@ -106,12 +107,32 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             raise HTTPException(status_code=404, detail="计算模块不存在") from exc
 
     @app.get("/", response_class=HTMLResponse)
-    def calculator_page(request: Request):
-        return templates.TemplateResponse(request, "calculator.html", {})
+    def home_page(request: Request):
+        catalog = build_module_catalog(active_registry)
+        available_modules = tuple(item for item in catalog if item.status == "available")
+        planned_modules = tuple(item for item in catalog if item.status == "planned")
+        featured_module = next(
+            (item for item in available_modules if item.featured),
+            available_modules[0] if available_modules else None,
+        )
+        return templates.TemplateResponse(
+            request,
+            "home.html",
+            {
+                "available_modules": available_modules,
+                "planned_modules": planned_modules,
+                "featured_module": featured_module,
+                "available_count": len(available_modules),
+                "planned_count": len(planned_modules),
+            },
+        )
 
-    @app.get("/modules/winch_drum", response_class=HTMLResponse)
-    def winch_drum_page(request: Request):
-        return templates.TemplateResponse(request, "calculator.html", {})
+    @app.get("/modules/{module_id}", response_class=HTMLResponse)
+    def module_page(module_id: str, request: Request):
+        module = module_or_404(module_id)
+        if not module.web_template:
+            raise HTTPException(status_code=501, detail="该模块尚未配置网页界面")
+        return templates.TemplateResponse(request, module.web_template, {"module": module})
 
     @app.get("/health/live")
     def live() -> dict[str, str]:
@@ -131,6 +152,9 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 "module_name": module.module_name,
                 "module_version": module.module_version,
                 "calculation_model_version": module.calculation_model_version,
+                "description": module.summary,
+                "category": module.category,
+                "entry_path": f"/modules/{module.module_id}" if module.web_template else None,
                 "available": True,
             }
             for module in active_registry.list()
