@@ -128,18 +128,18 @@
 
 ### 4.6 反求建议卷筒面长
 
-条件：已知 `D_c`、`d`、`K_p`、`L_t`、`z_max` 和 `b`，且 `B` 未提供。需要求最小整数完整层圈数 `N_req`，使：
+条件：已知 `D_c`、`d`、`K_p`、`L_t`、`z_max` 和 `b`，且 `B` 未提供。`D_c` 必须来自用户输入或经批准的 `R_Dd`；优化器不得自行发明通用 D/d。优化器只枚举有限集合 `z = 1..z_max`（`z_max<=100`）。对每个候选层数求最小整数完整层圈数 `N_req,z`，使：
 
-`Σ(j=1..z_max) max(0, N_req - I[j=1]N_dead) l_turn,j >= L_t`
+`Σ(j=1..z) max(0, N_req,z - I[j=1]N_dead) l_turn,j >= L_t`
 
-对 `N_req = 1, 2, ...` 做确定性整数搜索（可由上界估计加速），取第一个满足值：
+`N_req,z` 由容量线性关系直接向上取整并做一次浮点边界校正，不使用无界循环。每个候选组合均计算：
 
 | ID | 公式 | 单位 | 等级 |
 |---|---|---:|---|
-| `WIDTH-001` | `B_u,min = N_req p` | m | preliminary |
+| `WIDTH-001` | `B_u,min,z = N_req,z p` | m | preliminary |
 | `WIDTH-002` | `B_suggested = B_u,min + 2b` | m | preliminary |
 
-该值是规则排绳几何下的最小面长，不含法兰厚度、制造余量、排绳器行程余量、入绳偏角和附加工程裕度，必须人工复核。若产品决定加入容量裕量，必须增加独立输入 `capacity_design_margin`，不得偷偷并入 `K_p` 或两侧余量。
+当前版本使用 `B_suggested × (D_c + 2zd)^2` 作为透明的圆柱包络紧凑度代理量排序，并以面长、外包络直径和层数作确定性次级排序。该代理量不是质量、成本、强度或产品标准；返回完整候选列表和选中理由。建议面长是规则排绳几何下的最小值，不含法兰厚度、制造余量、排绳器行程余量、入绳偏角和附加工程裕度，必须人工复核。若产品决定加入容量裕量，必须增加独立输入 `capacity_design_margin`，不得偷偷并入 `K_p` 或两侧余量。
 
 ### 4.7 工作直径、卷筒转速和减速比
 
@@ -207,7 +207,7 @@ MVP 把 `F_r` 视为静态保持基准，不再乘 `K_s`，再单独乘制动安
 |---|---|---|
 | `W_INPUT_SCOPE` | high | 额定拉力/速度并非明确的卷筒绳端量。 |
 | `W_CORE_RULE_MISSING` | high | 芯径和批准 D/d 规则均缺失。 |
-| `W_CORE_UNVERIFIED` | high | 采用用户芯径，但绳型、强度和弯曲比未核验。 |
+| `W_CORE_UNVERIFIED` | high | 采用的用户芯径或 D/d 来源仍未完成绳型、强度和弯曲比核验。 |
 | `W_CAPACITY_INSUFFICIENT` | high | 最大层数下容量小于目标。 |
 | `W_FIXED_RATIO_SPEED_VARIATION` | medium | 空满卷要求的速比不同。 |
 | `W_MOTOR_SELECTION_INCOMPLETE` | high | 缺工作制/标准系列/启动与热校核。 |
