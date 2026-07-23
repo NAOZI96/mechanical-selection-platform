@@ -22,6 +22,9 @@ def make_input(**overrides: object) -> WinchDrumInput:
         "pitch_factor": 1.05,
         "side_margin_mm": 20,
         "reeving_ratio": 1,
+        "force_input_location": "drum_rope_end",
+        "speed_input_location": "drum_rope_end",
+        "pulley_efficiency": 1,
         "brake_safety_factor": 1.5,
         "duty_class": "测试工况，仅提示",
     }
@@ -34,7 +37,7 @@ class WinchCapacityTests(unittest.TestCase):
         result = calculate(make_input())
         expected_diameters = (0.42, 0.46, 0.50, 0.54, 0.58, 0.62)
         expected_capacities = (
-            47.5068965982,
+            43.5479885484,
             52.0302669750,
             56.5537210266,
             61.0772401619,
@@ -75,10 +78,16 @@ class WinchCapacityTests(unittest.TestCase):
         self.assertFalse(result.capacity_satisfied)
         self.assertIsNone(result.actual_layers)
         self.assertIsNone(result.capacity_at_actual_layers_m)
+        self.assertIsNone(result.full_working_diameter_m)
+        self.assertIsNone(result.full_drum_speed_rpm)
+        self.assertIsNone(result.reference_ratio_full)
+        self.assertIsNotNone(result.max_layer_working_diameter_m)
+        self.assertIsNotNone(result.max_layer_drum_speed_rpm)
+        self.assertIsNotNone(result.reference_ratio_max_layer)
         self.assertEqual(result.evaluated_layers, 6)
         self.assertAlmostEqual(
             result.capacity_shortfall_m or 0.0,
-            1000.0 - 352.8933589819464,
+            1000.0 - 348.9344509320961,
             places=9,
         )
         self.assertIn(
@@ -131,7 +140,7 @@ class WinchCapacityTests(unittest.TestCase):
         )
         self.assertIn("几何代理量", result.selected_candidate.explanation if result.selected_candidate else "")
 
-    def test_missing_core_rule_does_not_invent_geometry(self) -> None:
+    def test_project_default_dd_rule_produces_preliminary_geometry(self) -> None:
         result = calculate(
             make_input(
                 drum_core_diameter_mm=None,
@@ -139,28 +148,27 @@ class WinchCapacityTests(unittest.TestCase):
                 approved_core_ratio=None,
             )
         )
-        self.assertIsNone(result.used_or_suggested_core_diameter_m.value)
-        self.assertEqual(result.layer_details, ())
-        self.assertEqual(result.optimizer_candidates, ())
+        self.assertAlmostEqual(result.used_or_suggested_core_diameter_m.value or 0, 0.38)
+        self.assertTrue(result.layer_details)
+        self.assertTrue(result.optimizer_candidates)
         self.assertIn(
-            WarningCode.CORE_RULE_MISSING,
+            WarningCode.DD_PROJECT_DEFAULT,
             {warning.code for warning in result.warnings},
         )
 
     def test_dead_wraps_reduce_only_first_layer_usable_capacity(self) -> None:
-        without_dead_wraps = calculate(make_input(dead_wraps=0))
-        with_dead_wraps = calculate(make_input(dead_wraps=2))
+        with_two_wraps = calculate(make_input(dead_wraps=2))
+        with_three_wraps = calculate(make_input(dead_wraps=3))
 
-        turn_length_first = without_dead_wraps.layer_details[0].turn_length_m
+        turn_length_first = with_two_wraps.layer_details[0].turn_length_m
         self.assertAlmostEqual(
-            without_dead_wraps.layer_details[0].usable_capacity_m
-            - with_dead_wraps.layer_details[0].usable_capacity_m,
-            2 * turn_length_first,
+            with_two_wraps.layer_details[0].usable_capacity_m - with_three_wraps.layer_details[0].usable_capacity_m,
+            turn_length_first,
             places=12,
         )
         self.assertEqual(
-            without_dead_wraps.layer_details[1].usable_capacity_m,
-            with_dead_wraps.layer_details[1].usable_capacity_m,
+            with_two_wraps.layer_details[1].usable_capacity_m,
+            with_three_wraps.layer_details[1].usable_capacity_m,
         )
 
 

@@ -75,6 +75,11 @@ class WinchValidationTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_invalid("rated_line_pull_kn", value)
 
+    def test_finite_inputs_that_overflow_si_calculations_are_rejected(self) -> None:
+        for field in ("rated_line_pull_kn", "rope_speed_m_per_min", "service_factor"):
+            with self.subTest(field=field):
+                self.assert_invalid(field, 1e308)
+
     def test_numeric_strings_and_booleans_are_rejected(self) -> None:
         for value in ("100", True, False):
             with self.subTest(value=value):
@@ -104,6 +109,20 @@ class WinchValidationTests(unittest.TestCase):
         values["dead_wraps"] = 37
         with self.assertRaises(ValidationError):
             WinchDrumInput(**values)
+
+        values = valid_values()
+        values.update({"dead_wraps": 3, "actual_usable_groove_count": 2})
+        with self.assertRaises(ValidationError):
+            WinchDrumInput(**values)
+
+    def test_frozen_configuration_identifiers_reject_unknown_values(self) -> None:
+        self.assert_invalid("brake_basis_type", "rated_force")
+        self.assert_invalid("motor_power_series_id", "custom_unreviewed_series")
+        self.assert_invalid("transmission_backdrive_type", "unknown_drive")
+
+    def test_backdrive_efficiency_has_no_numeric_default(self) -> None:
+        model = WinchDrumInput(**valid_values())
+        self.assertIsNone(model.backdrive_efficiency)
 
     def test_text_fields_are_trimmed_and_not_blank(self) -> None:
         model = WinchDrumInput(**{**valid_values(), "motor_type": "  motor  "})

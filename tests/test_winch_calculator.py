@@ -30,9 +30,13 @@ def make_input(**overrides: object) -> WinchDrumInput:
         "pitch_factor": 1.05,
         "side_margin_mm": 20,
         "reeving_ratio": 1,
+        "force_input_location": "drum_rope_end",
+        "speed_input_location": "drum_rope_end",
+        "pulley_efficiency": 1,
         "brake_safety_factor": 1.5,
         "duty_class": "测试工况，仅提示",
-        "dead_wraps": 0,
+        "dead_wraps": 3,
+        "backdrive_efficiency": None,
         "allow_forward_efficiency_as_reverse_approx": False,
     }
     values.update(overrides)
@@ -43,7 +47,7 @@ class WinchCalculatorTests(unittest.TestCase):
     def test_gold_case_a001(self) -> None:
         result = calculate(make_input())
 
-        self.assertEqual(result.calculation_model_version, "winch_drum.calc.1.0.0")
+        self.assertEqual(result.calculation_model_version, "winch_drum.calc.1.1.0")
         self.assertAlmostEqual(result.design_line_pull_n.value or 0.0, 120000.0, places=9)
         self.assertAlmostEqual(result.theoretical_load_power_w.value or 0.0, 24000.0, places=9)
         self.assertAlmostEqual(
@@ -55,17 +59,13 @@ class WinchCalculatorTests(unittest.TestCase):
         self.assertAlmostEqual(result.usable_width_m or 0.0, 0.760, places=12)
         self.assertEqual(result.turns_per_full_layer, 36)
         self.assertEqual(result.actual_layers, 6)
-        self.assertAlmostEqual(
-            result.capacity_at_max_layers_m or 0.0,
-            352.8933589819,
-            places=9,
-        )
+        self.assertAlmostEqual(result.capacity_at_max_layers_m or 0.0, 348.9344509321, places=9)
         self.assertAlmostEqual(result.empty_drum_speed_rpm or 0.0, 9.0945681767, places=9)
         self.assertAlmostEqual(result.full_drum_speed_rpm or 0.0, 6.1608365068, places=9)
         self.assertAlmostEqual(result.reference_ratio_nominal or 0.0, 200.1194520337, places=9)
         self.assertAlmostEqual(
             result.low_speed_brake_torque_nm.value or 0.0,
-            46500.0,
+            55800.0,
             places=9,
         )
         self.assertIsNone(result.high_speed_brake_torque_ref_nm.value)
@@ -115,29 +115,28 @@ class WinchCalculatorTests(unittest.TestCase):
         second = calculate(source).model_dump(mode="json")
         self.assertEqual(first, second)
 
-    def test_service_factor_is_not_reapplied_to_brake(self) -> None:
+    def test_service_factor_enters_brake_once_through_design_force(self) -> None:
         base = calculate(make_input(service_factor=1.0))
         increased = calculate(make_input(service_factor=2.0))
 
         self.assertAlmostEqual(
-            (increased.design_line_pull_n.value or 0.0)
-            / (base.design_line_pull_n.value or 1.0),
+            (increased.design_line_pull_n.value or 0.0) / (base.design_line_pull_n.value or 1.0),
             2.0,
         )
-        self.assertEqual(
-            increased.low_speed_brake_torque_nm.value,
-            base.low_speed_brake_torque_nm.value,
+        self.assertAlmostEqual(
+            (increased.low_speed_brake_torque_nm.value or 0.0) / (base.low_speed_brake_torque_nm.value or 1.0),
+            2.0,
         )
 
     def test_forward_efficiency_approximation_is_explicit(self) -> None:
         result = calculate(make_input(allow_forward_efficiency_as_reverse_approx=True))
         self.assertAlmostEqual(
             result.high_speed_brake_torque_ref_nm.value or 0.0,
-            273.3661410573,
+            237.0084442966592,
             places=9,
         )
         self.assertIn(
-            WarningCode.REVERSE_EFFICIENCY_APPROXIMATED,
+            WarningCode.BACKDRIVE_EFFICIENCY_APPROXIMATED,
             {warning.code for warning in result.warnings},
         )
 
@@ -146,13 +145,11 @@ class WinchCalculatorTests(unittest.TestCase):
         self.assertEqual(tuple(module.module_id for module in modules), ("winch_drum",))
         module = get_module("winch_drum")
         self.assertIs(module.input_model, WinchDrumInput)
-        self.assertEqual(module.calculation_model_version, "winch_drum.calc.1.0.0")
+        self.assertEqual(module.calculation_model_version, "winch_drum.calc.1.1.0")
         self.assertEqual(module.calculate(make_input()).module_id, "winch_drum")
 
     def test_calculator_has_no_forbidden_framework_imports(self) -> None:
-        calculator_path = (
-            Path(__file__).parents[1] / "app" / "modules" / "winch_drum" / "calculator.py"
-        )
+        calculator_path = Path(__file__).parents[1] / "app" / "modules" / "winch_drum" / "calculator.py"
         tree = ast.parse(calculator_path.read_text(encoding="utf-8"))
         imported_roots: set[str] = set()
         for node in ast.walk(tree):

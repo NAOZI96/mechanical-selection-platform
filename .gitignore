@@ -1,4 +1,11 @@
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .venv/
+.env
+backups/
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+reports/
+tmp/
+.pytest_cache/

@@ -1,0 +1,43 @@
+:root {
+  color-scheme: light;
+  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  color: #172033;
+  background: #eef2f5;
+}
+body { margin: 0; }
+main {
+  box-sizing: border-box;
+  max-width: 1040px;
+  margin: 32px auto;
+  padding: 40px;
+  background: white;
+  box-shadow: 0 14px 40px rgb(15 23 42 / 8%);
+}
+.eyebrow { margin: 0; color: #64748b; font-size: 12px; letter-spacing: .14em; }
+h1 { margin: 8px 0 22px; font-size: 30px; }
+h2 { margin: 34px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #dbe4ec; font-size: 19px; }
+.metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 8px 24px; }
+.metadata div { display: grid; grid-template-columns: 130px 1fr; border-bottom: 1px solid #e6ebf0; padding: 6px 0; }
+dt { color: #64748b; }
+dd { margin: 0; overflow-wrap: anywhere; }
+.download-link { display: inline-block; margin-top: 18px; color: #0f5c74; font-weight: 700; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; border: 1px solid #ccd3dc; text-align: left; vertical-align: top; }
+th { background: #edf2f7; }
+.field-key { display: block; margin-top: 2px; color: #64748b; font-weight: 400; }
+.reason-row td { color: #9a3412; background: #fff7ed; }
+.warning-list, .assumptions { display: grid; padding: 0; gap: 8px; list-style: none; }
+.warning, .assumptions li { display: grid; padding: 12px 14px; border-left: 4px solid #f59e0b; background: #fffbeb; gap: 3px; }
+.warning--high, .warning--blocking { border-color: #dc2626; background: #fef2f2; }
+.warning small { color: #475569; }
+.steps { display: grid; padding-left: 24px; gap: 8px; }
+.steps li { padding-left: 6px; }
+.steps span, .steps code { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+.steps code { color: #334155; white-space: normal; }
+.disclaimer { margin-top: 36px; padding: 18px; border-left: 4px solid #b45309; background: #fff7ed; }
+.disclaimer p { margin-bottom: 0; }
+@media (max-width: 680px) {
+  main { margin: 0; padding: 20px; }
+  .metadata { grid-template-columns: 1fr; }
+}

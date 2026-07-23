@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.1.0  
+文档版本：0.2.0
 API 版本：`v1`  
 首发模块：`winch_drum`
 
@@ -19,6 +19,13 @@ API 版本：`v1`
 
 - `GET /health/live`：进程存活，不访问重资源。
 - `GET /health/ready`：注册表有效、SQLite 可执行轻量查询。
+
+### 2.1A Web 页面
+
+- `GET /`：首发 `winch_drum` 中文计算页面。
+- `GET /modules/winch_drum`：同一计算页面的稳定模块路径。
+
+页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
 
 ### 2.2 模块发现
 
@@ -53,16 +60,22 @@ API 版本：`v1`
     "pitch_factor": 1.05,
     "side_margin_mm": 20,
     "reeving_ratio": 1,
+    "force_input_location": "drum_rope_end",
+    "speed_input_location": "drum_rope_end",
+    "force_input_type": "rated",
+    "pulley_efficiency": 1.0,
     "brake_safety_factor": 1.5,
     "duty_class": "用户填写，仅提示",
     "approved_core_ratio": null,
-    "dead_wraps": 0,
-    "allow_forward_efficiency_as_reverse_approx": false
-  },
-  "assumption_sources": {
-    "service_factor": "待工程师确认",
-    "pitch_factor": "待工程师确认",
-    "brake_safety_factor": "待工程师确认"
+    "minimum_dd_ratio": 20,
+    "dead_wraps": 3,
+    "backdrive_efficiency": null,
+    "allow_forward_efficiency_as_reverse_approx": false,
+    "assumption_sources": {
+      "service_factor": "pending_confirmation",
+      "pitch_factor": "pending_confirmation",
+      "brake_safety_factor": "pending_confirmation"
+    }
   }
 }
 ```
@@ -75,8 +88,8 @@ API 版本：`v1`
 {
   "calculation_id": "uuid",
   "module_id": "winch_drum",
-  "module_version": "1.0.0",
-  "calculation_model_version": "winch_drum.calc.1.0.0",
+  "module_version": "1.1.0",
+  "calculation_model_version": "winch_drum.calc.1.1.0",
   "status": "completed_with_warnings",
   "created_at": "2026-07-22T00:00:00Z",
   "input_original": {},
@@ -89,10 +102,10 @@ API 版本：`v1`
       "formula_ids": ["FORCE-001"]
     },
     "suggested_motor_power_w": {
-      "value": null,
+      "value": 30000.0,
       "unit": "W",
-      "classification": "review_required",
-      "reason": "未配置经批准的电机标准功率系列及工作制规则",
+      "classification": "preliminary",
+      "reason": "按 project_default_iec_kw 冻结系列向上选档；启动和热容量待校核",
       "formula_ids": ["POWER-003"]
     },
     "layer_details": []
@@ -113,15 +126,17 @@ API 版本：`v1`
 }
 ```
 
-`layer_details[]` 至少含：`layer_number`、`working_diameter_m`、`turn_length_m`、`full_turns`、`used_turns`、`gross_capacity_m`、`usable_capacity_m` 和 `cumulative_usable_capacity_m`。
+`layer_details[]` 至少含：`layer_number`、`center_diameter_m`、`turn_length_m`、`full_turns`、`used_turns`、`gross_capacity_m`、`usable_capacity_m` 和 `cumulative_usable_capacity_m`。
 
-容量结果还应含 `capacity_satisfied`。若不足，`actual_layers` 与 `capacity_at_actual_layers_m` 为 null，另返回 `evaluated_layers=max_layers`、`capacity_at_max_layers_m`、`capacity_shortfall_m` 和最大层工作直径/转速。
+容量结果还应含 `capacity_satisfied`。若不足，`actual_layers`、`capacity_at_actual_layers_m`、`full_working_diameter_m`、`full_drum_speed_rpm` 和 `reference_ratio_full` 为 null；另返回 `evaluated_layers=max_layers`、`capacity_at_max_layers_m`、`capacity_shortfall_m`、`max_layer_working_diameter_m`、`max_layer_drum_speed_rpm` 和 `reference_ratio_max_layer`。
 
 ### 2.4 查询计算与报告
 
 - `GET /api/v1/calculations/{calculation_id}`：返回保存的快照，不重算。
 - `GET /calculations/{calculation_id}/report`：Jinja2 HTML 报告。
-- `GET /api/v1/calculations/{calculation_id}/report.pdf`：若已有且哈希/模板版本匹配则下载；否则从快照同步生成，限并发 1。繁忙返回 `429` 或 `503` 并带 `Retry-After`，实现前二选一并冻结契约。
+- `GET /api/v1/calculations/{calculation_id}/report.pdf`：若已有且哈希/模板版本匹配则下载；否则从持久化报告 DTO 同步生成，限并发 1。繁忙固定返回 `429 PDF_BUSY` 和 `Retry-After: 2`；超时、容量或渲染失败返回受控 `503`。
+
+HTML/PDF 从计算时持久化的同一份未舍入报告 DTO 渲染，包含原始/SI 输入、关键结果、公式、逐层容量、来源、警告、版本和免责声明。PDF 使用固定字体/模板版本，生成文件经大小、SHA-256、原子落盘和缓存完整性校验。
 
 MVP 不提供任意目录文件名，不接受模板路径，不把 calculation ID 直接拼入文件系统路径。
 
@@ -132,6 +147,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 | 状态 | 场景 |
 |---:|---|
 | 400 | JSON 格式或请求语义无法解析。 |
+| 411 | 带请求体的方法缺少 `Content-Length`。 |
 | 404 | 模块、计算或报告不存在。 |
 | 409 | 幂等键冲突或报告状态冲突（若 Phase 1 启用幂等键）。 |
 | 413 | 请求体超过限制。 |
@@ -163,7 +179,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 
 - 类型、非有限数、非正值、`total_efficiency > 1`、非整数层数、`B-2b <= 0` 为阻断错误。
 - 已知芯径与面长但容量不足：计算可保存为 `completed_with_warnings`，返回最大容量和缺口；报告显著标红，不给出“满足”结论。
-- 缺芯径且无批准 D/d：依赖几何字段返回 `review_required`；功率等独立结果仍可保存。
+- 缺芯径且无批准 D/d：采用显式项目初选比 20；相关几何结果为 `preliminary` 并产生 D/d/标准条款警告。
 - 缺反向效率且未显式允许近似：高速轴制动力矩为 `review_required`，低速轴静态参考仍返回。
 
 ## 4. 结果、公式步骤与报告上下文
@@ -181,6 +197,8 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - 适用范围和免责声明。
 
 报告模板禁止调用 `calculate()`；它只能消费保存的快照。
+
+请求体上限为 1 MiB；`POST/PUT/PATCH` 必须提供可解析的 `Content-Length`。单份 PDF 上限 20 MiB，项目持久化容量默认 5 GiB，达到 85% 后停止新 PDF、仍保留计算和已有报告读取。
 
 ## 5. 兼容与版本策略
 
