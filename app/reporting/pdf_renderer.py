@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -82,29 +82,20 @@ def render_pdf(
         ]
     )
     for step in report.steps:
-        variables = _display(step.get("variables", {}))
-        story.append(
-            Paragraph(
-                (
-                    f"<b>{_safe(step.get('formula_id', ''))}</b> "
-                    f"{_safe(step.get('expression', ''))}<br/>"
-                    f"<font color='#475569'>{_safe(variables)}</font><br/>"
-                    f"= {_safe(step.get('result_value', ''))} {_safe(step.get('unit', ''))}"
-                ),
-                styles["small"],
-            )
-        )
-        story.append(Spacer(1, 1.2 * mm))
+        story.append(_formula_block(step, styles))
+        story.append(Spacer(1, 1.8 * mm))
 
     story.append(Paragraph("默认值、来源与假设", styles["h2"]))
     for item in report.assumptions:
+        key = item.get("key_display", item.get("key", ""))
+        source_status = item.get("source_status_display", item.get("source_status", ""))
+        value_line = ""
+        if "value_display" in item:
+            unit = f" {_safe(item.get('unit_display', ''))}" if item.get("unit_display") else ""
+            value_line = f"<br/><font color='#475569'>记录值：{_safe(item.get('value_display', ''))}{unit}</font>"
         story.append(
             Paragraph(
-                (
-                    f"<b>{_safe(item.get('key', ''))} / "
-                    f"{_safe(item.get('source_status', ''))}</b><br/>"
-                    f"{_safe(item.get('note', ''))}"
-                ),
+                (f"<b>{_safe(key)} / {_safe(source_status)}</b>{value_line}<br/>{_safe(item.get('note', ''))}"),
                 styles["small"],
             )
         )
@@ -223,6 +214,51 @@ def _styles() -> dict[str, ParagraphStyle]:
             textColor=colors.HexColor("#7f1d1d"),
             wordWrap="CJK",
         ),
+        "formula_header": ParagraphStyle(
+            "FormulaHeaderCN",
+            parent=base["BodyText"],
+            fontName=FONT_NAME,
+            fontSize=7.6,
+            leading=10,
+            textColor=colors.HexColor("#0f5c74"),
+            wordWrap="CJK",
+        ),
+        "formula_badge": ParagraphStyle(
+            "FormulaBadgeCN",
+            parent=base["BodyText"],
+            fontName=FONT_NAME,
+            fontSize=6.8,
+            leading=9,
+            textColor=colors.HexColor("#475569"),
+            alignment=TA_RIGHT,
+        ),
+        "formula_expression": ParagraphStyle(
+            "FormulaExpressionCN",
+            parent=base["BodyText"],
+            fontName=FONT_NAME,
+            fontSize=8.2,
+            leading=12,
+            textColor=colors.HexColor("#172033"),
+            wordWrap="CJK",
+        ),
+        "formula_detail": ParagraphStyle(
+            "FormulaDetailCN",
+            parent=base["BodyText"],
+            fontName=FONT_NAME,
+            fontSize=6.8,
+            leading=10,
+            textColor=colors.HexColor("#334155"),
+            wordWrap="CJK",
+        ),
+        "formula_result": ParagraphStyle(
+            "FormulaResultCN",
+            parent=base["BodyText"],
+            fontName=FONT_NAME,
+            fontSize=7.4,
+            leading=10,
+            textColor=colors.HexColor("#0f5c74"),
+            alignment=TA_RIGHT,
+        ),
         "footer": ParagraphStyle(
             "FooterCN",
             parent=base["BodyText"],
@@ -236,7 +272,7 @@ def _styles() -> dict[str, ParagraphStyle]:
 
 def _metadata_table(report: ReportContext, styles: dict[str, ParagraphStyle]) -> Table:
     data = [
-        ["计算 ID", report.calculation_id, "状态", report.status],
+        ["计算 ID", report.calculation_id, "状态", report.status_label or report.status],
         ["模块 / 版本", f"{report.module_id} / {report.module_version}", "计算时间 UTC", report.calculation_created_at],
         ["计算模型", report.calculation_model_version, "报告模板", report.report_template_version],
     ]
@@ -253,7 +289,7 @@ def _result_table(report: ReportContext, styles: dict[str, ParagraphStyle]) -> L
         [_p(value, styles["table_header"]) for value in ("项目", "值", "单位", "等级", "公式")]
     ]
     for item in report.result_rows:
-        label = f"{item.label}<br/><font color='#64748b'>{_safe(item.key)}</font>"
+        label = _safe(item.label)
         value = item.display_value
         if item.reason:
             value = f"{_safe(value)}<br/><font color='#9a3412'>{_safe(item.reason)}</font>"
@@ -265,7 +301,7 @@ def _result_table(report: ReportContext, styles: dict[str, ParagraphStyle]) -> L
                 Paragraph(label, styles["table"]),
                 value_cell,
                 _p(item.unit, styles["table"]),
-                _p(item.classification, styles["table"]),
+                _p(item.classification_label or item.classification, styles["table"]),
                 _p("、".join(item.formula_ids), styles["table"]),
             ]
         )
@@ -314,7 +350,8 @@ def _layer_table(report: ReportContext, styles: dict[str, ParagraphStyle]) -> Lo
 def _warning_block(warning: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
     content = Paragraph(
         (
-            f"<b>{_safe(warning.get('code', ''))} / {_safe(warning.get('severity', ''))}</b><br/>"
+            f"<b>{_safe(warning.get('code', ''))} / "
+            f"{_safe(warning.get('severity_label', warning.get('severity', '')))}</b><br/>"
             f"{_safe(warning.get('message', ''))}<br/>"
             f"<font color='#475569'>{_safe(warning.get('recommended_action', ''))}</font>"
         ),
@@ -327,6 +364,62 @@ def _warning_block(warning: dict[str, Any], styles: dict[str, ParagraphStyle]) -
             [
                 ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef2f2")),
                 ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#dc2626")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        ),
+    )
+
+
+def _formula_block(step: dict[str, Any], styles: dict[str, ParagraphStyle]) -> Table:
+    formula_id = _safe(step.get("formula_id", ""))
+    group_label = _safe(step.get("group_label", "公式"))
+    classification = _safe(step.get("classification_label", step.get("classification", "")))
+    expression = _safe(step.get("expression_display", step.get("expression", "")))
+    variables = step.get("variables_display")
+    if variables is None:
+        variables_text = _display(step.get("variables", {}))
+    else:
+        variables_text = "；".join(f"{item.get('label', '')}={item.get('value', '')}" for item in variables)
+    result = _safe(step.get("result_display", step.get("result_value", "")))
+    unit = _safe(step.get("unit_display", step.get("unit", "")))
+    rows = [
+        [
+            Paragraph(f"<b>{formula_id}</b> · {group_label}", styles["formula_header"]),
+            Paragraph(classification, styles["formula_badge"]),
+        ],
+        [Paragraph(expression, styles["formula_expression"]), ""],
+        [
+            Paragraph(
+                f"<font color='#64748b'>代入值</font><br/>{_safe(variables_text)}",
+                styles["formula_detail"],
+            ),
+            "",
+        ],
+        [
+            Paragraph("<font color='#64748b'>计算结果</font>", styles["formula_detail"]),
+            Paragraph(f"<b>{result}</b> {unit}", styles["formula_result"]),
+        ],
+    ]
+    return Table(
+        rows,
+        colWidths=[135 * mm, 45 * mm],
+        style=TableStyle(
+            [
+                ("SPAN", (0, 1), (1, 1)),
+                ("SPAN", (0, 2), (1, 2)),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eaf2f5")),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.white),
+                ("BACKGROUND", (0, 2), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BOX", (0, 0), (-1, -1), 0.55, colors.HexColor("#b8c3ce")),
+                ("LINEABOVE", (0, 1), (-1, 1), 0.35, colors.HexColor("#dbe4ec")),
+                ("LINEABOVE", (0, 2), (-1, 2), 0.35, colors.HexColor("#dbe4ec")),
+                ("LINEABOVE", (0, 3), (-1, 3), 0.35, colors.HexColor("#dbe4ec")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("ALIGN", (1, 3), (1, 3), "RIGHT"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 7),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 7),
                 ("TOPPADDING", (0, 0), (-1, -1), 5),

@@ -25,6 +25,7 @@ class ReportResultRow(BaseModel):
     display_value: str
     unit: str
     classification: str
+    classification_label: str | None = None
     formula_ids: tuple[str, ...]
     reason: str | None = None
 
@@ -44,6 +45,7 @@ class ReportContext(BaseModel):
     report_template_version: str
     calculation_created_at: str
     status: str
+    status_label: str | None = None
     original_inputs: tuple[ReportInputRow, ...]
     si_inputs: tuple[ReportInputRow, ...]
     result_rows: tuple[ReportResultRow, ...]

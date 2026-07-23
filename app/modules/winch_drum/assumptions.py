@@ -12,7 +12,7 @@ MODULE_ID = "winch_drum"
 MODULE_NAME = "绞车与卷筒选型助手"
 MODULE_VERSION = "1.1.0"
 CALCULATION_MODEL_VERSION = "winch_drum.calc.1.1.0"
-REPORT_TEMPLATE_VERSION = "winch_drum.report.1.1.0"
+REPORT_TEMPLATE_VERSION = "winch_drum.report.1.2.0"
 
 MOTOR_POWER_SERIES_KW = (
     0.12,
