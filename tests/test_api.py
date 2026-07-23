@@ -77,6 +77,23 @@ class ApiTests(unittest.TestCase):
         self.assertIn("warning--${warning.severity}", script.text)
         self.assertIn("review_required", script.text)
 
+    def test_record_fields_use_chinese_defaults_and_selectable_dictionaries(self) -> None:
+        page = self.client.get("/").text
+        for field, value, option_list in (
+            ("rope_type", "镀锌钢丝绳", "rope-type-options"),
+            ("rope_construction", "6×36-IWRC", "rope-construction-options"),
+            ("rope_material", "镀锌钢", "rope-material-options"),
+            ("load_spectrum", "中等载荷", "load-spectrum-options"),
+            ("environment_type", "室内常温干燥环境", "environment-type-options"),
+        ):
+            with self.subTest(field=field):
+                self.assertIn(f'name="{field}"', page)
+                self.assertIn(f'value="{value}"', page)
+                self.assertIn(f'list="{option_list}"', page)
+                self.assertIn(f'<datalist id="{option_list}">', page)
+        self.assertIn("海洋或盐雾环境", page)
+        self.assertIn("可从中文备选库选择，也可按实际工况填写", page)
+
     def test_every_public_input_has_a_form_control_or_explicit_source_wrapper(self) -> None:
         page = self.client.get("/").text
         form_names = set(re.findall(r'name="([^"]+)"', page))
@@ -113,8 +130,40 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(fetched["results"]["design_line_pull_n"]["value"], 120000.0)
         report = self.client.get(f"/calculations/{calculation_id}/report")
         self.assertEqual(report.status_code, 200)
-        self.assertIn("120000.0", report.text)
+        self.assertIn(">120000<", report.text)
         self.assertIn("winch_drum.calc.1.1.0", report.text)
+
+    def test_report_actions_chinese_labels_custom_values_and_formula_layout(self) -> None:
+        payload = valid_payload()
+        custom_records = {
+            "rope_type": "项目定制钢丝绳",
+            "rope_construction": "用户确认结构甲",
+            "rope_material": "项目材料牌号甲",
+            "load_spectrum": "间歇重载且有冲击",
+            "environment_type": "室外潮湿并有盐雾",
+        }
+        payload["input"].update(custom_records)  # type: ignore[union-attr]
+        created = self.client.post(
+            "/api/v1/modules/winch_drum/calculations",
+            json=payload,
+        ).json()
+        self.assertEqual(created["report_template_version"], "winch_drum.report.1.2.0")
+        self.assertEqual(created["report_context"]["schema_version"], 3)
+        for field, value in custom_records.items():
+            self.assertEqual(created["input_original"][field], value)
+
+        report = self.client.get(created["links"]["html_report"])
+        self.assertEqual(report.status_code, 200)
+        self.assertIn('href="/modules/winch_drum">返回计算页</a>', report.text)
+        self.assertIn(f'href="{created["links"]["pdf"]}">下载 PDF</a>', report.text)
+        for label in ("输入拉力（kN）", "绳索类型", "载荷谱说明", "环境类型", "理论计算值", "项目设定"):
+            self.assertIn(label, report.text)
+        for value in custom_records.values():
+            self.assertIn(value, report.text)
+        self.assertIn('class="formula-card"', report.text)
+        self.assertIn("代入值", report.text)
+        self.assertIn("计算结果", report.text)
+        self.assertIn("F_d = F_r × K_s", report.text)
 
     def test_validation_unknown_module_and_missing_record(self) -> None:
         invalid = valid_payload()
@@ -150,7 +199,11 @@ class ApiTests(unittest.TestCase):
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         self.assertIn("绞车与卷筒选型助手计算报告", text)
         self.assertIn("winch_drum.calc.1.1.0", text)
+        self.assertIn("winch_drum.report.1.2.0", text)
         self.assertIn("120000", text)
+        self.assertIn("理论计算值", text)
+        self.assertIn("代入值", text)
+        self.assertIn("计算结果", text)
         self.assertIn("免责声明", text)
 
         second = self.client.get(created["links"]["pdf"])

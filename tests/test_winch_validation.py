@@ -129,6 +129,31 @@ class WinchValidationTests(unittest.TestCase):
         self.assertEqual(model.motor_type, "motor")
         self.assert_invalid("duty_class", "   ")
 
+    def test_chinese_record_fields_allow_custom_values_and_enforce_boundaries(self) -> None:
+        custom_records = {
+            "rope_type": "  项目定制钢丝绳  ",
+            "rope_construction": "用户确认结构甲",
+            "rope_material": "项目材料牌号甲",
+            "load_spectrum": "间歇重载且有冲击",
+            "environment_type": "室外潮湿并有盐雾",
+        }
+        model = WinchDrumInput(**{**valid_values(), **custom_records})
+        self.assertEqual(model.rope_type, "项目定制钢丝绳")
+        self.assertEqual(model.environment_type, "室外潮湿并有盐雾")
+
+        for field in custom_records:
+            with self.subTest(field=field, boundary="blank"):
+                self.assert_invalid(field, "   ")
+        for field, limit in (
+            ("rope_type", 64),
+            ("rope_construction", 128),
+            ("rope_material", 128),
+            ("load_spectrum", 128),
+            ("environment_type", 128),
+        ):
+            with self.subTest(field=field, boundary="too_long"):
+                self.assert_invalid(field, "中" * (limit + 1))
+
 
 if __name__ == "__main__":
     unittest.main()

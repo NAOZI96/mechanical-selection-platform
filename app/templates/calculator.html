@@ -88,12 +88,49 @@
         <fieldset>
           <legend>绳索、载荷与环境记录</legend>
           <div class="field-grid">
-            <label class="field"><span>绳索类型</span><input name="rope_type" type="text" maxlength="64" value="galvanized_steel_wire_rope" required></label>
-            <label class="field"><span>绳索结构</span><input name="rope_construction" type="text" maxlength="128" value="6x36_IWRC" required></label>
-            <label class="field"><span>绳索材料</span><input name="rope_material" type="text" maxlength="128" value="galvanized_steel" required></label>
-            <label class="field"><span>载荷谱说明</span><input name="load_spectrum" type="text" maxlength="128" value="medium_load" required></label>
-            <label class="field field--wide"><span>环境类型</span><input name="environment_type" type="text" maxlength="128" value="indoor_normal" required><small>这些字段只记录工况；当前模型不据此自动生成钢丝绳强度、寿命或环境合格结论。</small></label>
+            <label class="field"><span>绳索类型</span><input name="rope_type" type="text" maxlength="64" value="镀锌钢丝绳" list="rope-type-options" autocomplete="off" required></label>
+            <label class="field"><span>绳索结构</span><input name="rope_construction" type="text" maxlength="128" value="6×36-IWRC" list="rope-construction-options" autocomplete="off" required></label>
+            <label class="field"><span>绳索材料</span><input name="rope_material" type="text" maxlength="128" value="镀锌钢" list="rope-material-options" autocomplete="off" required></label>
+            <label class="field"><span>载荷谱说明</span><input name="load_spectrum" type="text" maxlength="128" value="中等载荷" list="load-spectrum-options" autocomplete="off" required></label>
+            <label class="field field--wide"><span>环境类型</span><input name="environment_type" type="text" maxlength="128" value="室内常温干燥环境" list="environment-type-options" autocomplete="off" required><small>可从中文备选库选择，也可按实际工况填写；这些字段只记录工况，当前模型不据此自动生成钢丝绳强度、寿命或环境合格结论。</small></label>
           </div>
+          <datalist id="rope-type-options">
+            <option value="镀锌钢丝绳"></option>
+            <option value="光面钢丝绳"></option>
+            <option value="不锈钢丝绳"></option>
+            <option value="合成纤维绳"></option>
+            <option value="待确认"></option>
+          </datalist>
+          <datalist id="rope-construction-options">
+            <option value="6×19-IWRC"></option>
+            <option value="6×36-IWRC"></option>
+            <option value="6×37-FC"></option>
+            <option value="多层股阻旋转结构"></option>
+            <option value="待确认"></option>
+          </datalist>
+          <datalist id="rope-material-options">
+            <option value="镀锌钢"></option>
+            <option value="光面碳素钢"></option>
+            <option value="不锈钢"></option>
+            <option value="合成纤维"></option>
+            <option value="待确认"></option>
+          </datalist>
+          <datalist id="load-spectrum-options">
+            <option value="轻载"></option>
+            <option value="中等载荷"></option>
+            <option value="重载"></option>
+            <option value="冲击载荷"></option>
+            <option value="待确认"></option>
+          </datalist>
+          <datalist id="environment-type-options">
+            <option value="室内常温干燥环境"></option>
+            <option value="室外一般环境"></option>
+            <option value="潮湿环境"></option>
+            <option value="海洋或盐雾环境"></option>
+            <option value="高温或低温环境"></option>
+            <option value="防爆或危险环境"></option>
+            <option value="待确认"></option>
+          </datalist>
         </fieldset>
 
         <fieldset>

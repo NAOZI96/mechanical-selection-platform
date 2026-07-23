@@ -11,15 +11,18 @@
     <header class="report-header">
       <p class="eyebrow">MECHANICAL DESIGN CALCULATION</p>
       <h1>{{ report.title }}</h1>
+      <nav class="report-actions no-print" aria-label="报告操作">
+        <a class="action-button action-button--secondary" href="/modules/winch_drum">返回计算页</a>
+        <a class="action-button action-button--primary" href="/api/v1/calculations/{{ report.calculation_id }}/report.pdf">下载 PDF</a>
+      </nav>
       <dl class="metadata">
         <div><dt>计算 ID</dt><dd>{{ report.calculation_id }}</dd></div>
         <div><dt>模块</dt><dd>{{ report.module_id }} / {{ report.module_version }}</dd></div>
         <div><dt>计算模型版本</dt><dd>{{ report.calculation_model_version }}</dd></div>
         <div><dt>报告模板版本</dt><dd>{{ report.report_template_version }}</dd></div>
         <div><dt>计算时间（UTC）</dt><dd>{{ report.calculation_created_at }}</dd></div>
-        <div><dt>状态</dt><dd>{{ report.status }}</dd></div>
+        <div><dt>状态</dt><dd>{{ report.status_label or report.status }}</dd></div>
       </dl>
-      <a class="download-link" href="/api/v1/calculations/{{ report.calculation_id }}/report.pdf">下载 PDF</a>
     </header>
 
     <section>
@@ -28,7 +31,7 @@
       <ul class="warning-list">
         {% for warning in report.warnings %}
         <li class="warning warning--{{ warning.severity }}">
-          <strong>{{ warning.code }} / {{ warning.severity }}</strong>
+          <strong>{{ warning.code }} / {{ warning.severity_label | default(warning.severity, true) }}</strong>
           <span>{{ warning.message }}</span>
           <small>{{ warning.recommended_action }}</small>
         </li>
@@ -47,10 +50,10 @@
           <tbody>
           {% for item in report.result_rows %}
             <tr>
-              <td>{{ item.label }}<small class="field-key">{{ item.key }}</small></td>
+              <td>{{ item.label }}</td>
               <td>{{ item.display_value }}</td>
               <td>{{ item.unit }}</td>
-              <td>{{ item.classification }}</td>
+              <td>{{ item.classification_label or item.classification }}</td>
               <td>{{ item.formula_ids | join('、') }}</td>
             </tr>
             {% if item.reason %}<tr class="reason-row"><td colspan="5">{{ item.reason }}</td></tr>{% endif %}
@@ -106,9 +109,36 @@
 
     <section>
       <h2>公式与换算审计步骤</h2>
-      <ol class="steps">
+      <ol class="formula-list">
       {% for step in report.steps %}
-        <li><strong>{{ step.formula_id }}</strong><span>{{ step.expression }}</span><code>{{ step.variables }}</code><span>= {{ step.result_value }} {{ step.unit }}</span></li>
+        <li class="formula-card">
+          <header class="formula-header">
+            <div>
+              <span class="formula-sequence">步骤 {{ step.sequence }}</span>
+              <strong>{{ step.formula_id }}</strong>
+              <span>{{ step.group_label | default('公式', true) }}</span>
+            </div>
+            <span class="formula-classification">{{ step.classification_label | default(step.classification, true) }}</span>
+          </header>
+          <code class="formula-expression">{{ step.expression_display | default(step.expression, true) }}</code>
+          <div class="formula-substitution">
+            <span class="formula-caption">代入值</span>
+            {% if step.variables_display is defined %}
+            <dl>
+              {% for variable in step.variables_display %}
+              <div><dt>{{ variable.label }}</dt><dd>{{ variable.value }}</dd></div>
+              {% endfor %}
+            </dl>
+            {% else %}
+            <code>{{ step.variables }}</code>
+            {% endif %}
+          </div>
+          <div class="formula-result">
+            <span>计算结果</span>
+            <strong>{{ step.result_display | default(step.result_value, true) }}</strong>
+            <span>{{ step.unit_display | default(step.unit, true) }}</span>
+          </div>
+        </li>
       {% endfor %}
       </ol>
     </section>
@@ -117,7 +147,11 @@
       <h2>默认值、来源与假设</h2>
       <ul class="assumptions">
       {% for item in report.assumptions %}
-        <li><strong>{{ item.key }} / {{ item.source_status }}</strong><span>{{ item.note }}</span></li>
+        <li>
+          <strong>{{ item.key_display | default(item.key, true) }} / {{ item.source_status_display | default(item.source_status, true) }}</strong>
+          {% if item.value_display is defined %}<span class="assumption-value">记录值：{{ item.value_display }}{% if item.unit_display %} {{ item.unit_display }}{% endif %}</span>{% endif %}
+          <span>{{ item.note }}</span>
+        </li>
       {% endfor %}
       </ul>
     </section>
