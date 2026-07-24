@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -19,6 +20,7 @@ class Settings:
     pdf_max_size_bytes: int = 20 * 1024 * 1024
     persistent_capacity_bytes: int = 5 * 1024 * 1024 * 1024
     persistent_stop_fraction: float = 0.85
+    public_base_url: str | None = None
 
     def __post_init__(self) -> None:
         if self.request_body_limit_bytes <= 0:
@@ -29,6 +31,16 @@ class Settings:
             raise ValueError("持久化容量必须大于 0")
         if not 0 < self.persistent_stop_fraction <= 1:
             raise ValueError("持久化停止阈值必须在 (0, 1] 内")
+        if self.public_base_url is not None:
+            parsed = urlsplit(self.public_base_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("public_base_url 必须是无路径、查询参数和片段的 HTTP(S) 站点根地址")
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -36,6 +48,7 @@ class Settings:
         database_path = Path(configured_path) if configured_path else PROJECT_ROOT / "data" / "app.sqlite3"
         configured_reports = os.getenv("DESIGN_AGENT_REPORTS_DIR")
         reports_dir = Path(configured_reports) if configured_reports else PROJECT_ROOT / "reports"
+        configured_public_url = os.getenv("DESIGN_AGENT_PUBLIC_BASE_URL", "").strip().rstrip("/")
         auto_migrate = os.getenv("DESIGN_AGENT_AUTO_MIGRATE", "true").strip().lower() in {
             "1",
             "true",
@@ -54,4 +67,5 @@ class Settings:
                 )
             ),
             persistent_stop_fraction=float(os.getenv("DESIGN_AGENT_PERSISTENT_STOP_FRACTION", "0.85")),
+            public_base_url=configured_public_url or None,
         )

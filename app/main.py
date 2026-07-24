@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from html import escape
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import PROJECT_ROOT, Settings
 from app.modules.catalog import build_module_catalog
@@ -36,7 +38,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
         yield
 
-    app = FastAPI(title="机械智选", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="机械智选 · WinchCalc Engineering", version="0.4.0", lifespan=lifespan)
     app.state.settings = app_settings
     repository = CalculationRepository(app_settings.database_path)
     service = CalculationService(repository, active_registry.get)
@@ -87,16 +89,34 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         return _validation_error(request.state.request_id, exc.errors())
 
     @app.exception_handler(HTTPException)
-    async def http_error_handler(request: Request, exc: HTTPException):
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(request: Request, exc: StarletteHTTPException):
         messages = {
             404: "请求的资源不存在",
             501: "该功能尚未实现",
             503: "服务暂不可用",
         }
+        detail_message = str(exc.detail) if exc.detail else ""
+        display_message = (
+            messages.get(exc.status_code, "请求失败")
+            if detail_message in {"", "Not Found", "Service Unavailable"}
+            else detail_message
+        )
+        if request.method in {"GET", "HEAD"} and "text/html" in request.headers.get("accept", ""):
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "status_code": exc.status_code,
+                    "message": display_message,
+                    "request_id": request.state.request_id,
+                },
+                status_code=exc.status_code,
+            )
         return _error(
             exc.status_code,
             f"HTTP_{exc.status_code}",
-            str(exc.detail) if exc.detail else messages.get(exc.status_code, "请求失败"),
+            display_message,
             request.state.request_id,
         )
 
@@ -107,6 +127,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             raise HTTPException(status_code=404, detail="计算模块不存在") from exc
 
     @app.get("/", response_class=HTMLResponse)
+    @app.head("/", response_class=HTMLResponse, include_in_schema=False)
     def home_page(request: Request):
         catalog = build_module_catalog(active_registry)
         available_modules = tuple(item for item in catalog if item.status == "available")
@@ -124,15 +145,42 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 "featured_module": featured_module,
                 "available_count": len(available_modules),
                 "planned_count": len(planned_modules),
+                "public_base_url": app_settings.public_base_url,
             },
         )
 
     @app.get("/modules/{module_id}", response_class=HTMLResponse)
+    @app.head("/modules/{module_id}", response_class=HTMLResponse, include_in_schema=False)
     def module_page(module_id: str, request: Request):
         module = module_or_404(module_id)
         if not module.web_template:
             raise HTTPException(status_code=501, detail="该模块尚未配置网页界面")
-        return templates.TemplateResponse(request, module.web_template, {"module": module})
+        return templates.TemplateResponse(
+            request,
+            module.web_template,
+            {"module": module, "public_base_url": app_settings.public_base_url},
+        )
+
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    def robots() -> str:
+        lines = ["User-agent: *", "Allow: /"]
+        if app_settings.public_base_url:
+            lines.extend(("", f"Sitemap: {app_settings.public_base_url}/sitemap.xml"))
+        return "\n".join(lines) + "\n"
+
+    @app.get("/sitemap.xml", response_class=Response)
+    def sitemap() -> Response:
+        if not app_settings.public_base_url:
+            raise HTTPException(status_code=404, detail="未配置公共站点地址")
+        base_url = escape(app_settings.public_base_url, quote=True)
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            f"<url><loc>{base_url}/</loc><priority>1.0</priority></url>"
+            f"<url><loc>{base_url}/modules/winch_drum</loc><priority>0.9</priority></url>"
+            "</urlset>"
+        )
+        return Response(content=body, media_type="application/xml")
 
     @app.get("/health/live")
     def live() -> dict[str, str]:

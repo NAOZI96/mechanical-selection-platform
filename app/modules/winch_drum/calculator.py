@@ -492,6 +492,27 @@ def _build_warnings(
                 "drum_core_diameter_mm",
             )
         )
+    if core_diameter_m is not None:
+        actual_dd_ratio = (core_diameter_m + data.rope_diameter_m) / data.rope_diameter_m
+        if actual_dd_ratio + 1e-12 < data.minimum_dd_ratio:
+            required_first_layer_diameter_m = data.minimum_dd_ratio * data.rope_diameter_m
+            required_core_diameter_m = required_first_layer_diameter_m - data.rope_diameter_m
+            warnings.append(
+                _warning(
+                    WarningCode.DD_RATIO_BELOW_MINIMUM,
+                    WarningSeverity.HIGH,
+                    (
+                        f"第一层绳中心直径与绳径之比 D/d = {actual_dd_ratio:.3f}，"
+                        f"低于当前设置的最小值 {data.minimum_dd_ratio:.3f}；"
+                        f"按本模型 D=D_core+d 的口径，第一层绳中心直径应不小于"
+                        f" {required_first_layer_diameter_m * 1000.0:.3f} mm，"
+                        f"对应卷筒芯径应不小于 {required_core_diameter_m * 1000.0:.3f} mm。"
+                    ),
+                    "drum_core_diameter_mm",
+                    "rope_diameter_mm",
+                    "minimum_dd_ratio",
+                )
+            )
 
     if geometry_available and not capacity_satisfied:
         warnings.append(

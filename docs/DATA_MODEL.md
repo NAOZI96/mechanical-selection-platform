@@ -29,7 +29,7 @@ calculation
 | `id` | TEXT | PK | UUID。 |
 | `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`。 |
 | `module_version` | TEXT | NOT NULL | SemVer 字符串。 |
-| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.1.0`。 |
+| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.0`。 |
 | `status` | TEXT | NOT NULL, CHECK | `completed` / `completed_with_warnings`。校验失败不建成功记录。 |
 | `input_original_json` | TEXT | NOT NULL | 原始值、显示单位和用户语义选择。 |
 | `input_si_json` | TEXT | NOT NULL | 规范化 SI 输入。 |

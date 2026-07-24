@@ -68,7 +68,10 @@ class ApiTests(unittest.TestCase):
     def test_platform_homepage_separates_available_and_planned_modules(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("把机械计算，组织成可追溯的工程模块", response.text)
+        self.assertIn("船舶与海工绞车智能设计计算平台", response.text)
+        self.assertIn("WinchCalc Engineering", response.text)
+        self.assertIn("winch drum calculation", response.text)
+        self.assertIn("静态制动力矩计算", response.text)
         self.assertIn("工程模块中心", response.text)
         self.assertIn("绞车与卷筒选型助手", response.text)
         self.assertIn('href="/modules/winch_drum"', response.text)
@@ -78,10 +81,38 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/modules/transmission_check").status_code, 404)
         self.assertIn("规划状态只表示产品路线", response.text)
 
+    def test_head_seo_crawler_files_favicon_and_html_404(self) -> None:
+        self.assertEqual(self.client.head("/").status_code, 200)
+        self.assertEqual(self.client.head("/modules/winch_drum").status_code, 200)
+        robots = self.client.get("/robots.txt")
+        self.assertEqual(robots.status_code, 200)
+        self.assertIn("User-agent: *", robots.text)
+        self.assertEqual(self.client.get("/sitemap.xml").status_code, 404)
+        self.assertEqual(self.client.get("/static/favicon.svg").status_code, 200)
+
+        browser_404 = self.client.get("/missing", headers={"Accept": "text/html"})
+        self.assertEqual(browser_404.status_code, 404)
+        self.assertIn("请求的资源不存在", browser_404.text)
+        self.assertIn("请求 ID", browser_404.text)
+
+        public_database = Path(self.temporary_directory.name) / "public.sqlite3"
+        public_url = "https://unit-test-host"
+        public_settings = Settings(database_path=public_database, public_base_url=public_url)
+        with TestClient(create_app(public_settings)) as public_client:
+            homepage = public_client.get("/")
+            self.assertIn(f'<link rel="canonical" href="{public_url}/">', homepage.text)
+            self.assertIn(f"Sitemap: {public_url}/sitemap.xml", public_client.get("/robots.txt").text)
+            sitemap = public_client.get("/sitemap.xml")
+            self.assertEqual(sitemap.status_code, 200)
+            self.assertIn(f"<loc>{public_url}/modules/winch_drum</loc>", sitemap.text)
+
     def test_chinese_calculator_page_and_static_assets(self) -> None:
         response = self.client.get("/modules/winch_drum")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("绞车与卷筒计算", response.text)
+        self.assertIn("绞车卷筒与容绳量计算", response.text)
+        self.assertIn("不输出整机“设计合格”结论", response.text)
+        self.assertIn('id="design-conclusion"', response.text)
+        self.assertIn('id="check-rows"', response.text)
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
         self.assertIn('src="/static/calculator.js"', response.text)
@@ -147,7 +178,7 @@ class ApiTests(unittest.TestCase):
         report = self.client.get(f"/calculations/{calculation_id}/report")
         self.assertEqual(report.status_code, 200)
         self.assertIn(">120000<", report.text)
-        self.assertIn("winch_drum.calc.1.1.0", report.text)
+        self.assertIn("winch_drum.calc.1.2.0", report.text)
 
     def test_report_actions_chinese_labels_custom_values_and_formula_layout(self) -> None:
         payload = valid_payload()
@@ -214,7 +245,7 @@ class ApiTests(unittest.TestCase):
         reader = PdfReader(pdf_path)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         self.assertIn("绞车与卷筒选型助手计算报告", text)
-        self.assertIn("winch_drum.calc.1.1.0", text)
+        self.assertIn("winch_drum.calc.1.2.0", text)
         self.assertIn("winch_drum.report.1.2.0", text)
         self.assertIn("120000", text)
         self.assertIn("理论计算值", text)

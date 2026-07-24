@@ -1,9 +1,9 @@
 # 部署设计
 
-文档版本：0.2.0
+文档版本：0.3.0
 
 目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘
-状态：Phase 4 目标机回环部署、容器实测和恢复演练已通过；公共代理未配置
+状态：Phase 4 目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁
 
 ## 1. 部署边界
 
@@ -75,6 +75,7 @@ PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像
 
 - 仅反向代理对外；应用端口绑定回环地址。复用现有代理前先只读确认配置，不覆盖。
 - HTTPS、请求大小、基础限流和安全头由代理与应用共同落实。
+- 生产环境通过 `.env` 设置 `DESIGN_AGENT_PUBLIC_BASE_URL`，用于 canonical、Open Graph URL、`robots.txt` 和 `sitemap.xml`；仓库不写死实际域名。
 - `.env` 仅保存随机密钥和部署配置，权限 0600；不把秘密写入镜像、仓库或日志。
 - 固定基础镜像摘要/依赖版本，构建时生成依赖清单；定期安全更新需先在预发布回归。
 - 容器 `read_only`、`no-new-privileges`、删除不需要的 Linux capabilities；健康检查不暴露内部信息。
@@ -127,4 +128,14 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 
 ## 11. 本次目标机验收
 
-2026-07-23 已在目标 Ubuntu 24.04.4 LTS 主机完成独立 Compose 回环部署。镜像、迁移、健康检查、关键计算、中文 PDF、1000 次计算/20 份 PDF/5 并发、资源采样、既有服务回归、在线备份和隔离恢复均通过；详见 [`PHASE4_ACCEPTANCE.md`](PHASE4_ACCEPTANCE.md)。应用只监听 `127.0.0.1:18080`，未修改现有青龙、Mihomo、OpenClaw，也未配置公共代理。
+2026-07-23 已在目标 Ubuntu 24.04.4 LTS 主机完成独立 Compose 回环部署。镜像、迁移、健康检查、关键计算、中文 PDF、1000 次计算/20 份 PDF/5 并发、资源采样、既有服务回归、在线备份和隔离恢复均通过；详见 [`PHASE4_ACCEPTANCE.md`](PHASE4_ACCEPTANCE.md)。该次验收时应用只监听 `127.0.0.1:18080`，未修改现有青龙、Mihomo、OpenClaw，也未配置公共代理。
+
+## 12. 公网代理与可访问性复测
+
+2026-07-24 在用户批准处理外部访问问题后完成：
+
+- DNS 仅有一个 A 记录，没有 AAAA 或 CNAME；80/443 均由 Caddy 监听；
+- Caddy 已取得有效的 Let's Encrypt 证书，服务器本机通过 SNI 访问返回 HTTP/2 200；
+- 反向代理仍只访问 `127.0.0.1:18080`，增加 3 s 连接窗口、10 s 响应头超时和 503 友好错误；
+- 应用补充首页/模块 HEAD、HTML 404、favicon、canonical、Open Graph、`robots.txt` 和 `sitemap.xml`；
+- 外部 TCP 抓包显示 ClientHello 到达主机后连接立即被复位，而本机同证书/TLS 链路正常；固定解析到服务器 IP 的 HTTP 请求被腾讯云改写为指向 `dnspod.qcloud.com/static/webblock.html` 的 302。故障位于腾讯云域名访问门禁，不在应用、Caddy 或证书链。必须由域名主体在腾讯云控制台确认并完成 ICP 首次备案、接入备案或新增服务后再做国内外复测。不得通过临时开放不受控端口或绕过备案替代正式处理。
