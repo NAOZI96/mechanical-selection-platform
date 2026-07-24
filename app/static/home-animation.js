@@ -2,10 +2,97 @@
 
 (() => {
   const consoleRoot = document.querySelector("[data-home-animation]");
-  if (!consoleRoot) return;
-
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const compactViewport = window.matchMedia("(max-width: 720px)");
+
+  const setupModuleCarousel = () => {
+    const carousel = document.querySelector("[data-module-carousel]");
+    if (!carousel) return;
+
+    const slides = [...carousel.querySelectorAll("[data-carousel-slide]")];
+    const dots = [...carousel.querySelectorAll("[data-carousel-dot]")];
+    const previousButton = carousel.querySelector("[data-carousel-previous]");
+    const nextButton = carousel.querySelector("[data-carousel-next]");
+    const currentLabel = carousel.querySelector("[data-carousel-current]");
+    if (slides.length < 2 || !previousButton || !nextButton || !currentLabel) return;
+
+    let currentIndex = 0;
+    let timerId;
+    let paused = false;
+
+    const showSlide = (nextIndex, direction = 1) => {
+      const normalizedIndex = (nextIndex + slides.length) % slides.length;
+      if (normalizedIndex === currentIndex) return;
+
+      slides[currentIndex].hidden = true;
+      dots[currentIndex].setAttribute("aria-pressed", "false");
+      currentIndex = normalizedIndex;
+      const nextSlide = slides[currentIndex];
+      nextSlide.hidden = false;
+      dots[currentIndex].setAttribute("aria-pressed", "true");
+      currentLabel.textContent = String(currentIndex + 1).padStart(2, "0");
+
+      if (!reduceMotion.matches && typeof nextSlide.animate === "function") {
+        nextSlide.animate(
+          [
+            { opacity: 0, transform: `translateX(${direction * 18}px)` },
+            { opacity: 1, transform: "translateX(0)" },
+          ],
+          { duration: 360, easing: "cubic-bezier(.2,.8,.2,1)" },
+        );
+      }
+    };
+
+    const stopAutoRotation = () => {
+      if (timerId) window.clearInterval(timerId);
+      timerId = undefined;
+    };
+
+    const startAutoRotation = () => {
+      stopAutoRotation();
+      if (reduceMotion.matches || paused || document.hidden) return;
+      timerId = window.setInterval(() => showSlide(currentIndex + 1, 1), 5600);
+    };
+
+    previousButton.addEventListener("click", () => {
+      showSlide(currentIndex - 1, -1);
+      startAutoRotation();
+    });
+    nextButton.addEventListener("click", () => {
+      showSlide(currentIndex + 1, 1);
+      startAutoRotation();
+    });
+    dots.forEach((dot, index) => {
+      dot.addEventListener("click", () => {
+        showSlide(index, index >= currentIndex ? 1 : -1);
+        startAutoRotation();
+      });
+    });
+    carousel.addEventListener("mouseenter", () => {
+      paused = true;
+      stopAutoRotation();
+    });
+    carousel.addEventListener("mouseleave", () => {
+      paused = false;
+      startAutoRotation();
+    });
+    carousel.addEventListener("focusin", () => {
+      paused = true;
+      stopAutoRotation();
+    });
+    carousel.addEventListener("focusout", (event) => {
+      if (carousel.contains(event.relatedTarget)) return;
+      paused = false;
+      startAutoRotation();
+    });
+    document.addEventListener("visibilitychange", startAutoRotation);
+    reduceMotion.addEventListener?.("change", startAutoRotation);
+    startAutoRotation();
+  };
+
+  setupModuleCarousel();
+  if (!consoleRoot) return;
+
   const replayButton = consoleRoot.querySelector(".console-replay");
 
   if (reduceMotion.matches || !window.anime) {
@@ -18,7 +105,7 @@
     ".home-kicker, .home-hero h1, .home-intro, .home-actions, .hero-metrics > div",
   );
   const consoleReadouts = consoleRoot.querySelectorAll(
-    ".console-topline > *, .console-readout > div, .console-note",
+    ".console-topline > *",
   );
   const drawingText = consoleRoot.querySelectorAll(".drawing-copy text");
   const scanline = consoleRoot.querySelector(".console-scanline");

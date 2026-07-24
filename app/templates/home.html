@@ -14,7 +14,7 @@
   {% endif %}
   <title>WinchCalc Engineering｜船舶与海工绞车设计计算平台</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=20260724.3">
 </head>
 <body class="home-page">
   <header class="site-header home-header">
@@ -23,9 +23,9 @@
       <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
     </a>
     <nav class="site-nav" aria-label="主页导航">
-      <a href="#modules">模块中心</a>
-      <a href="#platform">平台能力</a>
-      <a href="#extension">扩展方式</a>
+      <a href="#modules">全部功能</a>
+      <a href="#platform">功能原理</a>
+      <a href="#extension">平台理念</a>
     </nav>
     {% if featured_module and featured_module.entry_path %}
     <a class="header-action" href="{{ featured_module.entry_path }}">进入当前模块 <span aria-hidden="true">→</span></a>
@@ -47,11 +47,7 @@
           <a class="button button--primary button--large" href="{{ featured_module.entry_path }}">
             快速方案计算 <span aria-hidden="true">↗</span>
           </a>
-          <a class="button button--ghost button--large" href="{{ featured_module.entry_path }}?sample=golden">
-            查看验证算例
-          </a>
           {% endif %}
-          <span class="planned-action" title="专项强度、动态制动与采购级型号尚未完成审核">完整工程设计 · 规划中</span>
         </div>
         <dl class="hero-metrics" aria-label="平台概况">
           <div><dt>{{ "%02d"|format(available_count) }}</dt><dd>已开放模块</dd></div>
@@ -97,15 +93,6 @@
             </g>
           </svg>
         </div>
-        <div class="console-readout">
-          <div><span>MODEL</span><strong>winch_drum.calc.1.2.0</strong></div>
-          <div><span>METHOD</span><strong>逐层离散容绳</strong></div>
-          <div><span>OUTPUT</span><strong>快照 · HTML · PDF</strong></div>
-        </div>
-        <div class="console-note">
-          <span>01</span>
-          <p>当前模块用于工程初算和方案比较；专项强度、疲劳、动态与采购级型号仍须独立校核。</p>
-        </div>
       </aside>
     </section>
 
@@ -113,79 +100,101 @@
       <div class="section-heading section-heading--home">
         <div>
           <p class="section-index">01 / MODULE DIRECTORY</p>
-          <h2 id="module-title">工程模块中心</h2>
+          <h2 id="module-title">全部功能模块</h2>
         </div>
-        <p>可用状态来自运行时注册表；规划状态只表示产品路线，不代表已经实现或通过工程审核。</p>
+        <p>从上方轮转展台或下方目录进入已开放模块。规划模块展示产品路线，完成独立计算规格、验证与工程审核后开放。</p>
       </div>
 
-      {% if featured_module %}
-      <article class="featured-module">
-        <div class="featured-module__visual module-visual--{{ featured_module.icon_key }}">
-          <div class="module-glyph" aria-hidden="true">
-            <span class="glyph-flange glyph-flange--left"></span>
-            <span class="glyph-drum"></span>
-            <span class="glyph-flange glyph-flange--right"></span>
-            <span class="glyph-rope"></span>
-          </div>
-          <p>{{ featured_module.module_id }}</p>
+      {% if module_catalog %}
+      <div class="module-carousel" data-module-carousel aria-roledescription="轮播" aria-label="功能模块轮转展台">
+        <div class="module-carousel__viewport" aria-live="off">
+          {% for item in module_catalog %}
+          <article
+            class="featured-module module-carousel__slide{% if item.status == 'planned' %} featured-module--planned{% endif %}"
+            data-carousel-slide
+            data-module-id="{{ item.module_id }}"
+            aria-roledescription="幻灯片"
+            aria-label="{{ loop.index }} / {{ module_catalog|length }}：{{ item.module_name }}"
+            {% if not loop.first %}hidden{% endif %}
+          >
+            <div class="featured-module__visual module-visual--{{ item.icon_key }}">
+              <div class="module-portrait" aria-hidden="true">
+                <span>{{ "%02d"|format(loop.index) }}</span>
+                <strong>{{ item.category }}</strong>
+              </div>
+              {% if item.module_id == "winch_drum" %}
+              <div class="module-glyph" aria-hidden="true">
+                <span class="glyph-flange glyph-flange--left"></span>
+                <span class="glyph-drum"></span>
+                <span class="glyph-flange glyph-flange--right"></span>
+                <span class="glyph-rope"></span>
+              </div>
+              {% endif %}
+              <p>{{ item.module_id }}</p>
+            </div>
+            <div class="featured-module__content">
+              <div class="module-meta">
+                <span class="status-pill status-pill--{{ item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.status_label }}</span>
+                <span>{{ item.category }}</span>
+                {% if item.module_version %}<span>模块 v{{ item.module_version }}</span>{% endif %}
+              </div>
+              <h3>{{ item.module_name }}</h3>
+              <p>{{ item.summary }}</p>
+              <ul class="capability-list" aria-label="{{ item.module_name }}能力">
+                {% for capability in item.capabilities %}
+                <li>{{ capability }}</li>
+                {% endfor %}
+              </ul>
+              {% if item.entry_path %}
+              <a class="module-entry" href="{{ item.entry_path }}">
+                进入功能模块 <span aria-hidden="true">→</span>
+              </a>
+              {% else %}
+              <span class="module-entry module-entry--disabled" aria-disabled="true">规划中 · 待开放</span>
+              {% endif %}
+            </div>
+          </article>
+          {% endfor %}
         </div>
-        <div class="featured-module__content">
-          <div class="module-meta">
-            <span class="status-pill status-pill--available"><i></i>{{ featured_module.status_label }}</span>
-            <span>{{ featured_module.category }}</span>
-            {% if featured_module.module_version %}<span>模块 v{{ featured_module.module_version }}</span>{% endif %}
+        <div class="module-carousel__controls">
+          <div class="carousel-arrows">
+            <button type="button" data-carousel-previous aria-label="上一个功能模块">←</button>
+            <span><strong data-carousel-current>01</strong> / {{ "%02d"|format(module_catalog|length) }}</span>
+            <button type="button" data-carousel-next aria-label="下一个功能模块">→</button>
           </div>
-          <h3>{{ featured_module.module_name }}</h3>
-          <p>{{ featured_module.summary }}</p>
-          <ul class="capability-list" aria-label="模块能力">
-            {% for capability in featured_module.capabilities %}
-            <li>{{ capability }}</li>
+          <div class="carousel-dots" role="group" aria-label="选择功能模块">
+            {% for item in module_catalog %}
+            <button
+              type="button"
+              data-carousel-dot="{{ loop.index0 }}"
+              aria-label="显示{{ item.module_name }}"
+              aria-pressed="{{ 'true' if loop.first else 'false' }}"
+            ></button>
             {% endfor %}
-          </ul>
-          {% if featured_module.entry_path %}
-          <a class="module-entry" href="{{ featured_module.entry_path }}">
-            打开计算工作台 <span aria-hidden="true">→</span>
-          </a>
-          {% endif %}
+          </div>
         </div>
-      </article>
+      </div>
       {% endif %}
 
-      {% set additional_available = available_modules|reject("equalto", featured_module)|list %}
-      {% if additional_available %}
-      <div class="module-grid module-grid--available">
-        {% for item in additional_available %}
-        <article class="module-card module-card--available">
+      <div class="directory-heading">
+        <span>DIRECTORY / {{ "%02d"|format(module_catalog|length) }}</span>
+        <p>{{ available_count }} 个已开放 · {{ planned_count }} 个规划中</p>
+      </div>
+      <div class="module-grid module-grid--directory">
+        {% for item in module_catalog %}
+        <article class="module-card module-card--{{ item.status }}">
           <div class="module-card__top">
-            <span class="module-code">{{ "%02d"|format(loop.index + 1) }}</span>
-            <span class="status-pill status-pill--available"><i></i>{{ item.status_label }}</span>
+            <span class="module-code">{{ "%02d"|format(loop.index) }}</span>
+            <span class="status-pill status-pill--{{ item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.status_label }}</span>
           </div>
           <p class="module-category">{{ item.category }}</p>
           <h3>{{ item.module_name }}</h3>
           <p>{{ item.summary }}</p>
-          {% if item.entry_path %}<a href="{{ item.entry_path }}">进入模块 <span aria-hidden="true">→</span></a>{% endif %}
-        </article>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="roadmap-heading">
-        <div><span>ROADMAP</span><h3>后续模块预留</h3></div>
-        <p>{{ planned_count }} 个方向已进入模块目录，均须在独立计算规格、金样与审核门禁完成后才能开放。</p>
-      </div>
-      <div class="module-grid">
-        {% for item in planned_modules %}
-        <article class="module-card module-card--planned">
-          <div class="module-card__top">
-            <span class="module-code">{{ "%02d"|format(loop.index + available_count) }}</span>
-            <span class="status-pill status-pill--planned">{{ item.status_label }}</span>
-          </div>
-          <p class="module-category">{{ item.category }}</p>
-          <h3>{{ item.module_name }}</h3>
-          <p>{{ item.summary }}</p>
-          <div class="planned-capabilities">
-            {% for capability in item.capabilities %}<span>{{ capability }}</span>{% endfor %}
-          </div>
+          {% if item.entry_path %}
+          <a href="{{ item.entry_path }}">进入模块 <span aria-hidden="true">→</span></a>
+          {% else %}
+          <span class="module-card__pending">完成验证后开放</span>
+          {% endif %}
         </article>
         {% endfor %}
       </div>
@@ -194,30 +203,30 @@
     <section class="platform-section" id="platform" data-scroll-stage="platform" aria-labelledby="platform-title">
       <div class="section-heading section-heading--home">
         <div>
-          <p class="section-index">02 / PLATFORM CONTRACT</p>
-          <h2 id="platform-title">统一工程工作流</h2>
+          <p class="section-index">02 / PLATFORM PRINCIPLE</p>
+          <h2 id="platform-title">从工程问题到可追溯方案</h2>
         </div>
-        <p>每个模块共享平台外壳，但工程公式、输入模型和审核依据彼此隔离。</p>
+        <p>网站把零散的工程输入组织成可复核的计算过程，让每个数字都能找到来源、公式、版本与适用边界。</p>
       </div>
       <ol class="workflow-grid">
-        <li><span>01</span><div><h3>明确工况</h3><p>Pydantic 后端校验输入，来源状态与显示单位一并记录。</p></div></li>
-        <li><span>02</span><div><h3>归一计算</h3><p>内部统一 SI 单位，确定性 Python 内核不依赖页面、数据库或网络。</p></div></li>
-        <li><span>03</span><div><h3>分级结果</h3><p>理论值、初选值与待校核值分开呈现，高等级警告保持可见。</p></div></li>
-        <li><span>04</span><div><h3>同源留档</h3><p>API、HTML 与 PDF 读取同一不可变快照，报告不重新计算。</p></div></li>
+        <li><span>01 / INPUT</span><div><h3>描述真实工况</h3><p>围绕载荷、速度、几何、材料与工作级别采集输入，同时记录单位和参数来源。</p></div></li>
+        <li><span>02 / CALCULATE</span><div><h3>执行确定性计算</h3><p>内部统一 SI 单位，由独立 Python 计算内核执行公式；同样输入得到同样结果。</p></div></li>
+        <li><span>03 / REVIEW</span><div><h3>呈现结果与边界</h3><p>理论值、初选值、建议值和待校核值分级展示，风险与缺失依据不被隐藏。</p></div></li>
+        <li><span>04 / RECORD</span><div><h3>形成同源记录</h3><p>页面、API 与 PDF 读取同一计算快照，保留模型版本，便于复查和方案比较。</p></div></li>
       </ol>
     </section>
 
     <section class="extension-section" id="extension" data-scroll-stage="extension" aria-labelledby="extension-title">
       <div class="extension-copy">
-        <p class="section-index">03 / EXTENSION INTERFACE</p>
-        <h2 id="extension-title">新增模块，不改平台主流程</h2>
-        <p>后续工具通过同一注册契约接入。主页从注册表自动发现已开放模块，规划卡片则在模块真正注册后自动让位。</p>
+        <p class="section-index">03 / DESIGN PHILOSOPHY</p>
+        <h2 id="extension-title">让计算透明，让结论有边界</h2>
+        <p>平台不是替代工程师的“黑箱答案”，而是把输入、方法、结果和待确认项放在同一条证据链上，帮助工程师更快比较方案、更稳妥地做出判断。</p>
       </div>
       <ol class="extension-steps">
-        <li><span>1</span><p><strong>定义</strong>独立输入、结果和计算规格</p></li>
-        <li><span>2</span><p><strong>实现</strong>确定性计算与报告上下文</p></li>
-        <li><span>3</span><p><strong>验证</strong>金样、边界、API 与 PDF</p></li>
-        <li><span>4</span><p><strong>注册</strong>模块元数据与页面模板</p></li>
+        <li><span>1</span><p><strong>可解释</strong>关键公式、代入值与计算步骤可阅读</p></li>
+        <li><span>2</span><p><strong>可追溯</strong>输入来源、假设、版本与报告相互对应</p></li>
+        <li><span>3</span><p><strong>不越界</strong>不把初步选型包装成强度、采购或审批结论</p></li>
+        <li><span>4</span><p><strong>可扩展</strong>每个新模块独立验证，通过统一契约接入平台</p></li>
       </ol>
     </section>
   </main>
@@ -233,6 +242,6 @@
     <p>平台输出不替代适用标准核查、结构强度与安全校核、制造商确认或工程审批。</p>
   </footer>
   <script src="/static/vendor/animejs/anime.umd.min.js" defer></script>
-  <script src="/static/home-animation.js" defer></script>
+  <script src="/static/home-animation.js?v=20260724.3" defer></script>
 </body>
 </html>
