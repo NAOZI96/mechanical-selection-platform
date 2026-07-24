@@ -47,14 +47,19 @@ const goldenSample = {
   pulley_efficiency: 1,
 };
 
-document.querySelector("#load-golden-sample").addEventListener("click", () => {
+function loadGoldenSample() {
   Object.entries(goldenSample).forEach(([name, value]) => {
     form.elements[name].value = String(value);
   });
   form.elements.backdrive_efficiency.value = "";
   form.elements.allow_forward_efficiency_as_reverse_approx.checked = false;
   formErrors.hidden = true;
-});
+}
+
+document.querySelector("#load-golden-sample").addEventListener("click", loadGoldenSample);
+if (new URLSearchParams(window.location.search).get("sample") === "golden") {
+  loadGoldenSample();
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -144,10 +149,88 @@ function renderSnapshot(snapshot) {
   );
 
   renderWarnings(snapshot.warnings);
+  renderDesignConclusion(snapshot);
+  renderChecks(snapshot);
   renderKeyResults(snapshot.results);
   renderLayers(snapshot.results.layer_details || []);
   renderAssumptions(snapshot.assumptions || []);
   resultContent.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function renderDesignConclusion(snapshot) {
+  const container = document.querySelector("#design-conclusion");
+  const severities = new Set(snapshot.warnings.map((warning) => warning.severity));
+  let tone = "review";
+  let title = "完成初步计算，仍需工程复核";
+  let message = "当前快照只证明所列公式已执行，不代表整机设计、制造或采购合格。";
+  if (severities.has("blocking") || !snapshot.results.capacity_satisfied) {
+    tone = "fail";
+    title = "当前方案不可行";
+    message = "存在阻断项或容绳量不足，请修正输入后重新计算。";
+  } else if (severities.has("high")) {
+    tone = "risk";
+    title = "参数存在高风险，不得判定设计合格";
+    message = "高等级警告、专项强度或动态校核尚未关闭，只能用于方案比较与初步选型。";
+  } else if (snapshot.warnings.length) {
+    tone = "conditional";
+    title = "有条件的初步结果";
+    message = "请关闭全部警告并完成适用标准与专业审核后，再进入详细设计。";
+  }
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  const body = document.createElement("p");
+  body.textContent = message;
+  container.className = `design-conclusion design-conclusion--${tone}`;
+  container.replaceChildren(heading, body);
+}
+
+function renderChecks(snapshot) {
+  const results = snapshot.results;
+  const input = snapshot.input_original;
+  const rows = [
+    {
+      name: "D/d（第一层绳中心直径）",
+      calculated: formatNumber(results.dd_ratio_first_layer),
+      requirement: `≥ ${formatNumber(input.minimum_dd_ratio)}`,
+      status: results.dd_ratio_first_layer >= input.minimum_dd_ratio ? "满足" : "不满足",
+    },
+    {
+      name: "可用工作绳长",
+      calculated: `${formatNumber(results.available_work_rope_length_m)} m`,
+      requirement: `≥ ${formatNumber(input.target_rope_capacity_m)} m`,
+      status: results.capacity_satisfied ? "满足" : "不满足",
+    },
+    {
+      name: "电机稳态功率",
+      calculated: `${formatNumber((results.minimum_motor_power_w.value || 0) / 1000)} kW`,
+      requirement: results.suggested_motor_power_w.value === null
+        ? "超出已配置功率系列"
+        : `初选 ${formatNumber(results.suggested_motor_power_w.value / 1000)} kW`,
+      status: results.suggested_motor_power_w.value === null ? "不满足" : "初选满足",
+    },
+    {
+      name: "低速轴静态制动力矩",
+      calculated: results.low_speed_brake_torque_nm.value === null
+        ? "—"
+        : `${formatNumber(results.low_speed_brake_torque_nm.value / 1000)} kN·m`,
+      requirement: "选用制动器需不低于计算值",
+      status: "待校核",
+    },
+  ];
+  const body = document.querySelector("#check-rows");
+  body.replaceChildren();
+  rows.forEach((item) => {
+    const row = document.createElement("tr");
+    [item.name, item.calculated, item.requirement].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    });
+    const status = document.createElement("td");
+    status.append(chip(item.status, checkTone(item.status)));
+    row.append(status);
+    body.append(row);
+  });
 }
 
 function renderWarnings(warnings) {
@@ -300,6 +383,9 @@ function formatNumber(value, digits = 3) {
 }
 function statusLabel(status) { return status === "completed" ? "计算完成" : "完成，存在警告"; }
 function severityLabel(value) { return ({blocking: "阻断", high: "高", warning: "警告", info: "提示"})[value] || value; }
+function checkTone(value) {
+  return ({"满足": "calculated", "初选满足": "preliminary", "不满足": "blocking", "待校核": "review_required"})[value] || "informational";
+}
 function classificationLabel(value) {
   return ({calculated: "理论计算", preliminary: "工程初选", review_required: "待校核", informational: "提示"})[value] || value;
 }

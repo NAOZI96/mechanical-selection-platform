@@ -47,7 +47,7 @@ class WinchCalculatorTests(unittest.TestCase):
     def test_gold_case_a001(self) -> None:
         result = calculate(make_input())
 
-        self.assertEqual(result.calculation_model_version, "winch_drum.calc.1.1.0")
+        self.assertEqual(result.calculation_model_version, "winch_drum.calc.1.2.0")
         self.assertAlmostEqual(result.design_line_pull_n.value or 0.0, 120000.0, places=9)
         self.assertAlmostEqual(result.theoretical_load_power_w.value or 0.0, 24000.0, places=9)
         self.assertAlmostEqual(
@@ -145,7 +145,7 @@ class WinchCalculatorTests(unittest.TestCase):
         self.assertEqual(tuple(module.module_id for module in modules), ("winch_drum",))
         module = get_module("winch_drum")
         self.assertIs(module.input_model, WinchDrumInput)
-        self.assertEqual(module.calculation_model_version, "winch_drum.calc.1.1.0")
+        self.assertEqual(module.calculation_model_version, "winch_drum.calc.1.2.0")
         self.assertEqual(module.calculate(make_input()).module_id, "winch_drum")
 
     def test_calculator_has_no_forbidden_framework_imports(self) -> None:

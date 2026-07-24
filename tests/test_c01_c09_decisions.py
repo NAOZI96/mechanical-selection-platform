@@ -81,6 +81,21 @@ class DecisionRegressionTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValidationError):
                 make_input(rope_diameter_mm=invalid)
 
+    def test_dd_below_project_minimum_reports_values_and_required_core(self) -> None:
+        result = calculate(
+            make_input(
+                rope_diameter_mm=20,
+                drum_core_diameter_mm=300,
+                minimum_dd_ratio=18,
+            )
+        )
+        warning = next(warning for warning in result.warnings if warning.code is WarningCode.DD_RATIO_BELOW_MINIMUM)
+        self.assertEqual(warning.severity.value, "high")
+        self.assertIn("D/d = 16.000", warning.message)
+        self.assertIn("最小值 18.000", warning.message)
+        self.assertIn("绳中心直径应不小于 360.000 mm", warning.message)
+        self.assertIn("卷筒芯径应不小于 340.000 mm", warning.message)
+
     def test_service_factor_applies_only_to_rated_force(self) -> None:
         rated = calculate(make_input(force_input_type="rated", service_factor=1.5))
         design = calculate(make_input(force_input_type="design", service_factor=1.5))

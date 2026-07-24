@@ -2,9 +2,9 @@
 
 自动化证据索引见 [`FORMULA_TEST_MATRIX.md`](FORMULA_TEST_MATRIX.md)。矩阵通过只证明软件与本规格一致，不替代本规格及参数来源的机械工程签字。
 
-文档版本：0.2.0
+文档版本：0.3.0
 
-计算模型版本：`winch_drum.calc.1.1.0`
+计算模型版本：`winch_drum.calc.1.2.0`
 状态：C-01～C-09 项目决策已冻结，Phase 2R 一致性复审已完成
 
 ## C-01～C-07 冻结决策（与历史段落冲突时以本节为准）
@@ -12,7 +12,7 @@
 - C-01：`m=v_drum/v_load>=1`。载荷端输入时 `F_drum=F_load/(m*η_pulley)`、`v_drum=m*v_load`，卷筒端输入直接采用；所有后续计算只用换算后的卷筒端值。`m>1` 使用默认效率 0.95 时产生 `W_PULLEY_EFFICIENCY_DEFAULT`。
 - C-02：`B_effective=B-2*b_side>0`。实际可用槽数优先；其次实际槽距；否则 `p=pitch_factor*d`、`N=floor(B_effective/p)`。同时输出理论圈数、最终圈数和依据。
 - C-03：死圈允许 2～8，默认 3。`L_required_total=L_target+L_dead_wrap+L_termination_allowance`；死圈按第一层绳中心螺旋圈长计算；`L_available_work=L_total_capacity-L_dead_wrap-L_termination_allowance`。目标工作绳长不含死圈和安装预留。
-- C-04：允许绳径 4～64 mm，主要验证 6～32 mm。`D=D_core+d`、`D/d=(D_core+d)/d`，默认比值 20 反求 `D_core=(20-1)*d`。默认比值和未确认标准条款分别产生 `W_DD_PROJECT_DEFAULT`、`W_STANDARD_CLAUSE_NOT_CONFIRMED`。
+- C-04：允许绳径 4～64 mm，主要验证 6～32 mm。`D=D_core+d`、`D/d=(D_core+d)/d`，默认比值 20 反求 `D_core=(20-1)*d`。实际 `D/d` 低于当前 `minimum_dd_ratio` 时产生带实际比值、要求直径和建议芯径的 `W_DD_RATIO_BELOW_MINIMUM` 高风险警告，不得输出整机“设计合格”结论。默认比值和未确认标准条款分别产生 `W_DD_PROJECT_DEFAULT`、`W_STANDARD_CLAUSE_NOT_CONFIRMED`。
 - C-05：`service_factor=1.25` 仅在额定拉力输入时形成一次 `F_design`；设计/最大拉力输入时实际作用值为 1。`pitch_factor=1.10` 只用于理论节距。`brake_safety_factor=1.50` 只用于一次静态保持制动。
 - C-06：满卷为静态最不利半径，`T_low=F_design*r_full*brake_safety_factor`，`T_high=T_low*η_back/i`。只有显式允许时才可用正向效率近似；自锁、蜗杆、不可逆或禁止反驱机构不得近似。动态、应急与热容量不作合格结论。
 - C-07：`P_drum=F_design*v_drum`、`P_required=P_drum/η_forward`，不再乘使用系数。从集中功率系列向上选档；超过 315 kW 返回超范围。选档不代表启动、堵转、惯量、变频低速、认证或热容量合格。
@@ -244,6 +244,7 @@
 | `W_DEAD_WRAP_BELOW_DEFAULT` | high | 固定死圈少于项目初选默认 3 圈。 |
 | `W_PULLEY_EFFICIENCY_DEFAULT` | warning | 倍率大于 1 且滑轮效率采用项目初选默认值。 |
 | `W_ROPE_DIAMETER_OUTSIDE_VALIDATED_RANGE` | warning | 绳径超出主要验证范围 6～32 mm。 |
+| `W_DD_RATIO_BELOW_MINIMUM` | high | 第一层绳中心直径 D/d 低于当前设置的最小值；文案给出未舍入比值和按同一口径反求的最小芯径。 |
 | `W_DD_PROJECT_DEFAULT` | warning | D/d 采用项目初选默认值。 |
 | `W_DYNAMIC_BRAKE_NOT_CHECKED` | high | 动态制动和热容量未校核。 |
 | `W_MOTOR_THERMAL_NOT_CHECKED` | high | 电机启动、工作制和热容量未校核。 |

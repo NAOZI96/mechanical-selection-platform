@@ -24,8 +24,11 @@ API 版本：`v1`
 
 - `GET /`：机械智选平台主页；展示运行时已注册模块和只读规划目录。
 - `GET /modules/{module_id}`：已注册模块的统一页面入口；当前 `winch_drum` 使用 `/modules/winch_drum`。
+- `HEAD /`、`HEAD /modules/{module_id}`：供可用性探针和爬虫做轻量状态检查。
+- `GET /robots.txt`：允许抓取；生产环境配置公共站点根地址后附带 sitemap 地址。
+- `GET /sitemap.xml`：只在生产环境配置公共站点根地址时返回首页和已开放模块 URL，否则返回 404。
 
-主页的“可用”状态和页面入口来自运行时注册表；规划模块不进入此 API，也不生成伪入口。模块页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
+主页的“可用”状态和页面入口来自运行时注册表；规划模块不进入此 API，也不生成伪入口。浏览器请求不存在的页面时返回带请求 ID 的 HTML 404，API 客户端仍收到统一 JSON 错误。模块页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
 
 ### 2.2 模块发现
 
@@ -89,7 +92,7 @@ API 版本：`v1`
   "calculation_id": "uuid",
   "module_id": "winch_drum",
   "module_version": "1.1.0",
-  "calculation_model_version": "winch_drum.calc.1.1.0",
+  "calculation_model_version": "winch_drum.calc.1.2.0",
   "status": "completed_with_warnings",
   "created_at": "2026-07-22T00:00:00Z",
   "input_original": {},
@@ -179,6 +182,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 
 - 类型、非有限数、非正值、`total_efficiency > 1`、非整数层数、`B-2b <= 0` 为阻断错误。
 - 已知芯径与面长但容量不足：计算可保存为 `completed_with_warnings`，返回最大容量和缺口；报告显著标红，不给出“满足”结论。
+- 实际第一层绳中心直径 D/d 低于 `minimum_dd_ratio`：返回 `W_DD_RATIO_BELOW_MINIMUM` 高风险警告，包含实际比值、要求直径和按 `D=D_core+d` 反求的建议最小芯径；页面不得据此输出整机“设计合格”。
 - 缺芯径且无批准 D/d：采用显式项目初选比 20；相关几何结果为 `preliminary` 并产生 D/d/标准条款警告。
 - 缺反向效率且未显式允许近似：高速轴制动力矩为 `review_required`，低速轴静态参考仍返回。
 

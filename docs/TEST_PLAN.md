@@ -65,6 +65,7 @@
 | `A-002` | `B` 缺失、`D_c` 存在 | 整数搜索得到最小圈数和面长；减小一个节距后容量必不足。 |
 | `A-003` | `D_c` 缺失、批准 `R_Dd` 存在 | `D_c=R_Dd d`，等级 preliminary，来源进入报告。 |
 | `A-004` | `D_c` 与批准 `R_Dd` 均缺失 | 采用项目初选比 20，芯径/面长为 preliminary，出现 `W_DD_PROJECT_DEFAULT` 与 `W_STANDARD_CLAUSE_NOT_CONFIRMED`。 |
+| `A-005` | `d=20 mm`、`D_core=300 mm`、`minimum_dd_ratio=18` | 实际第一层中心直径比 `D/d=16`，出现 high 级 `W_DD_RATIO_BELOW_MINIMUM`；按同一口径给出第一层中心直径至少 360 mm、芯径至少 340 mm。 |
 | `A-005` | 给定面长容量不足 | `capacity_satisfied=false`，实际层数为 null；返回最大层数容量、缺口和最大层工作状态，状态带警告，不声称满足目标。 |
 | `A-006` | 目标恰好等于累计层容量 | 实际层数不多算一层，余量为 0（容差内）。 |
 | `A-007` | 可用宽度恰好等于整数倍节距 | 圈数精确为该整数，不因浮点误差少 1。 |

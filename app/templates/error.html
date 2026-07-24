@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ status_code }}｜机械智选 · WinchCalc Engineering</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="error-page">
+  <main class="error-shell">
+    <a class="brand" href="/" aria-label="返回首页">
+      <span class="brand-mark">W</span>
+      <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
+    </a>
+    <p class="error-code">{{ status_code }}</p>
+    <h1>{{ message }}</h1>
+    <p>请检查地址，或返回平台首页继续使用已开放的工程计算模块。</p>
+    <a class="button button--primary" href="/">返回首页</a>
+    <small>请求 ID：{{ request_id }}</small>
+  </main>
+</body>
+</html>
