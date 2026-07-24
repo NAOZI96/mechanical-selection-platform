@@ -4,7 +4,11 @@ const form = document.querySelector("#winch-form");
 const calculateButton = document.querySelector("#calculate-button");
 const formErrors = document.querySelector("#form-errors");
 const emptyState = document.querySelector("#empty-state");
+const loadingState = document.querySelector("#loading-state");
 const resultContent = document.querySelector("#result-content");
+const resultPanel = document.querySelector("#results");
+const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
+let resultState = "idle";
 
 const numericFields = [
   "rated_line_pull_kn", "rope_diameter_mm", "rope_speed_m_per_min",
@@ -54,11 +58,39 @@ function loadGoldenSample() {
   form.elements.backdrive_efficiency.value = "";
   form.elements.allow_forward_efficiency_as_reverse_approx.checked = false;
   formErrors.hidden = true;
+  saveSessionState();
 }
 
+function clearCalculatorSession() {
+  const confirmed = window.confirm("确认清空当前标签页中的计算参数和最近结果吗？已保存的历史报告不会删除。");
+  if (!confirmed) return;
+
+  form.reset();
+  clearFieldErrors();
+  formErrors.replaceChildren();
+  formErrors.hidden = true;
+  try {
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (error) {
+    console.warn("无法清除本次访问的计算参数。", error);
+  }
+  document.querySelector("#report-link").href = "#";
+  setResultState("idle");
+  form.querySelector("input, select")?.focus({preventScroll: true});
+}
+
+document.querySelector("#clear-calculator").addEventListener("click", clearCalculatorSession);
 document.querySelector("#load-golden-sample").addEventListener("click", loadGoldenSample);
+document.querySelector("#back-to-input").addEventListener("click", () => {
+  form.scrollIntoView({behavior: "smooth", block: "start"});
+  form.querySelector("input, select")?.focus({preventScroll: true});
+});
+form.addEventListener("input", () => saveSessionState());
+form.addEventListener("change", () => saveSessionState());
 if (new URLSearchParams(window.location.search).get("sample") === "golden") {
   loadGoldenSample();
+} else {
+  restoreSessionState();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -70,7 +102,9 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  const previousResultState = resultState;
   setLoading(true);
+  setResultState("loading");
   try {
     const response = await fetch("/api/v1/modules/winch_drum/calculations", {
       method: "POST",
@@ -81,12 +115,15 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) {
       const error = data.error || {message: "计算请求失败", details: []};
       showError(error.message, error.details || []);
+      setResultState(previousResultState);
       return;
     }
     formErrors.hidden = true;
+    saveSessionState(data);
     renderSnapshot(data);
   } catch (error) {
     showError("无法连接计算服务，请确认本地应用仍在运行。", []);
+    setResultState(previousResultState);
   } finally {
     setLoading(false);
   }
@@ -135,9 +172,60 @@ function buildPayload() {
   };
 }
 
-function renderSnapshot(snapshot) {
-  emptyState.hidden = true;
-  resultContent.hidden = false;
+function serializeForm() {
+  const values = {};
+  Array.from(form.elements).forEach((field) => {
+    if (!field.name) return;
+    values[field.name] = field.type === "checkbox" ? field.checked : field.value;
+  });
+  return values;
+}
+
+function saveSessionState(snapshot) {
+  try {
+    const previous = readSessionState();
+    const state = {
+      version: 1,
+      form: serializeForm(),
+      snapshot: snapshot === undefined ? previous?.snapshot || null : snapshot,
+    };
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn("无法保存本次访问的计算参数。", error);
+  }
+}
+
+function readSessionState() {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    return state?.version === 1 && state.form && typeof state.form === "object" ? state : null;
+  } catch (error) {
+    console.warn("无法读取本次访问的计算参数。", error);
+    return null;
+  }
+}
+
+function restoreSessionState() {
+  const state = readSessionState();
+  if (!state) return;
+  Object.entries(state.form).forEach(([name, value]) => {
+    const field = form.elements[name];
+    if (!field) return;
+    if (field.type === "checkbox") {
+      field.checked = value === true;
+    } else if (typeof value === "string") {
+      field.value = value;
+    }
+  });
+  if (state.snapshot?.module_id === "winch_drum" && state.snapshot?.results && state.snapshot?.links) {
+    renderSnapshot(state.snapshot, {focus: false});
+  }
+}
+
+function renderSnapshot(snapshot, {focus = true} = {}) {
+  setResultState("result");
   document.querySelector("#report-link").href = snapshot.links.html_report;
 
   const meta = document.querySelector("#result-meta");
@@ -154,7 +242,19 @@ function renderSnapshot(snapshot) {
   renderKeyResults(snapshot.results);
   renderLayers(snapshot.results.layer_details || []);
   renderAssumptions(snapshot.assumptions || []);
-  resultContent.scrollIntoView({behavior: "smooth", block: "start"});
+  if (focus) {
+    resultContent.focus({preventScroll: true});
+    resultContent.scrollIntoView({behavior: "smooth", block: "start"});
+  }
+}
+
+function setResultState(state) {
+  resultState = state;
+  resultPanel.dataset.state = state;
+  resultPanel.setAttribute("aria-busy", String(state === "loading"));
+  emptyState.hidden = state !== "idle";
+  loadingState.hidden = state !== "loading";
+  resultContent.hidden = state !== "result";
 }
 
 function renderDesignConclusion(snapshot) {
