@@ -140,6 +140,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             request,
             "home.html",
             {
+                "module_catalog": catalog,
                 "available_modules": available_modules,
                 "planned_modules": planned_modules,
                 "featured_module": featured_module,
