@@ -7,8 +7,8 @@
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/winch_drum">{% endif %}
   <title>绞车卷筒与容绳量计算｜WinchCalc Engineering</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/calculator.js" defer></script>
+    <link rel="stylesheet" href="/static/app.css?v=20260724.2">
+    <script src="/static/calculator.js?v=20260724.2" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -46,7 +46,10 @@
       <form id="winch-form" class="input-panel" novalidate>
         <div class="panel-heading">
           <div><p class="step-label">01 / 输入</p><h2>计算参数</h2></div>
-          <button type="button" class="button button--ghost" id="load-golden-sample">载入测试金样</button>
+          <div class="input-heading-actions">
+            <button type="button" class="button button--danger-ghost" id="clear-calculator">清空参数</button>
+            <button type="button" class="button button--ghost" id="load-golden-sample">载入测试金样</button>
+          </div>
         </div>
         <p class="sample-warning">测试金样仅用于验证页面和公式，不是项目推荐参数。所有系数来源默认标记为“待确认”。</p>
 
@@ -176,14 +179,36 @@
         <div id="form-errors" class="error-box" role="alert" aria-live="assertive" hidden></div>
         <div class="form-actions">
           <button type="submit" class="button button--primary" id="calculate-button">保存快照并计算</button>
-          <p>成功计算会写入本地 SQLite 快照；报告读取快照，不重新计算。</p>
+          <p>参数和最近结果会在当前浏览器标签页访问期间自动保留；成功计算同时写入本地 SQLite 快照，报告读取快照而不重新计算。</p>
         </div>
       </form>
 
-      <section class="result-panel" id="results" aria-live="polite">
-        <div class="empty-state" id="empty-state"><span>Σ</span><h2>等待计算</h2><p>填写左侧参数后，结果、警告和逐层容绳明细将在这里显示。</p></div>
-        <div id="result-content" hidden>
-          <div class="panel-heading result-heading"><div><p class="step-label">02 / 结果</p><h2>计算快照</h2></div><a id="report-link" class="button button--ghost" href="#">打开报告</a></div>
+      <section class="result-panel" id="results" data-state="idle" aria-live="polite" aria-busy="false">
+        <div class="empty-state" id="empty-state">
+          <span aria-hidden="true">Σ</span>
+          <p class="step-label">02 / 结果</p>
+          <h2>等待计算</h2>
+          <p>填写左侧参数后，结果、警告和逐层容绳明细将在这里显示。</p>
+          <ul aria-label="结果内容">
+            <li>关键参数与容量判定</li>
+            <li>工程警告与待校核项</li>
+            <li>同源 HTML / PDF 报告</li>
+          </ul>
+        </div>
+        <div class="loading-state" id="loading-state" role="status" hidden>
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <p class="step-label">02 / 正在处理</p>
+          <h2>正在计算并保存快照</h2>
+          <p>正在执行确定性计算、写入 SQLite，并准备同源报告上下文。</p>
+        </div>
+        <div id="result-content" tabindex="-1" hidden>
+          <div class="panel-heading result-heading">
+            <div><p class="step-label">02 / 结果</p><h2>计算快照</h2></div>
+            <div class="result-actions">
+              <button type="button" class="button button--quiet" id="back-to-input">返回参数</button>
+              <a id="report-link" class="button button--ghost" href="#">打开报告</a>
+            </div>
+          </div>
           <div id="result-meta" class="result-meta"></div>
           <section id="design-conclusion" class="design-conclusion"></section>
           <section><div class="section-title"><h3>工程警告</h3><span id="warning-count"></span></div><ul id="warning-list" class="warning-list"></ul></section>
