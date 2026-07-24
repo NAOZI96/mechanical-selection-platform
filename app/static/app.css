@@ -184,7 +184,7 @@ footer { padding: 24px; border-top: 1px solid #dbe0e6; color: #7b8797; text-alig
 }
 .live-label { display: inline-flex; align-items: center; gap: 7px; color: #326c58; }
 .live-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px #e1f0ea; }
-.console-drawing { padding: 14px 18px 8px; border-bottom: 1px solid #dce1e7; background: #f6f8fa; }
+.console-drawing { position: relative; padding: 14px 18px 8px; overflow: hidden; border-bottom: 1px solid #dce1e7; background: #f6f8fa; }
 .console-drawing svg { display: block; width: 100%; height: auto; }
 .drawing-grid { fill: none; stroke: #dfe5eb; stroke-width: 1; }
 .drawing-main { fill: none; stroke: #234b78; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.2; }
@@ -196,6 +196,18 @@ footer { padding: 24px; border-top: 1px solid #dbe0e6; color: #7b8797; text-alig
 .console-readout span, .console-readout strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .console-readout span { margin-bottom: 6px; color: #8b94a2; font: 700 8px/1 Consolas, "SFMono-Regular", monospace; letter-spacing: .08em; }
 .console-readout strong { color: #344257; font-size: 9px; }
+.console-scanline {
+  position: absolute; z-index: 2; top: 0; bottom: 0; left: 0; width: 54px; opacity: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(42, 102, 165, .12), rgba(42, 102, 165, .32), transparent);
+  mix-blend-mode: multiply;
+}
+.console-replay {
+  padding: 4px 8px; border: 1px solid #d2d9e2; color: #657386; background: #fff; cursor: pointer;
+  font: 700 8px/1 Consolas, "SFMono-Regular", monospace; letter-spacing: .08em;
+}
+.console-replay:hover { border-color: var(--blue); color: var(--blue); }
+.console-replay:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.home-motion-enhanced .console-drawing svg * { transform-box: fill-box; transform-origin: center; }
 .console-note { display: flex; padding: 15px 18px; align-items: flex-start; gap: 13px; border-top: 1px solid #dce1e7; background: #172f4d; }
 .console-note > span {
   display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; border: 1px solid #6d829d; color: #b9c8d9;
@@ -259,6 +271,11 @@ footer { padding: 24px; border-top: 1px solid #dbe0e6; color: #7b8797; text-alig
 .module-code { color: #9aa3af; font: 700 10px Consolas, "SFMono-Regular", monospace; }
 .module-category { margin: 32px 0 8px !important; color: var(--blue) !important; font-size: 9px !important; font-weight: 800; letter-spacing: .08em; }
 .module-card h3 { margin: 0; color: #2b3748; font-size: 18px; line-height: 1.4; }
+.home-motion-enhanced .module-grid { perspective: 1000px; }
+.home-motion-enhanced .module-card { transform-origin: 50% 100%; backface-visibility: hidden; }
+.home-motion-enhanced [data-scroll-stage] { scroll-margin-top: 78px; }
+[data-scroll-state="entering"],
+[data-scroll-state="returning"] { pointer-events: none; }
 .module-card > p { margin: 13px 0 0; color: #6a7585; font-size: 10px; line-height: 1.75; }
 .module-card > a { display: inline-flex; margin-top: 24px; gap: 12px; color: var(--navy); font-size: 10px; font-weight: 800; text-decoration: none; }
 .planned-capabilities { display: flex; position: absolute; right: 24px; bottom: 22px; left: 24px; flex-wrap: wrap; gap: 6px; }
@@ -300,6 +317,15 @@ footer { padding: 24px; border-top: 1px solid #dbe0e6; color: #7b8797; text-alig
 .workflow-strip strong { display: block; margin: 5px 0; color: #2c3849; font-size: 12px; }
 .workflow-strip p { margin: 0; color: #687587; font-size: 10px; line-height: 1.6; }
 .design-conclusion { margin: 18px 0; padding: 16px 18px; border-left: 4px solid #718096; background: #f4f6f8; }
+@media (prefers-reduced-motion: reduce) {
+  .home-page *, .home-page *::before, .home-page *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
 .design-conclusion h3 { margin: 0 0 5px; color: #263345; font-size: 14px; }
 .design-conclusion p { margin: 0; color: #5f6b7a; font-size: 11px; line-height: 1.6; }
 .design-conclusion--fail { border-left-color: #a92323; background: #fff0f0; }
