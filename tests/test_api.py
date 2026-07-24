@@ -58,18 +58,34 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/health/ready").json(), {"status": "ready"})
         modules = self.client.get("/api/v1/modules").json()
         self.assertEqual([module["module_id"] for module in modules], ["winch_drum"])
+        self.assertEqual(modules[0]["category"], "起重与牵引")
+        self.assertEqual(modules[0]["entry_path"], "/modules/winch_drum")
+        self.assertIn("逐层容绳", modules[0]["description"])
         schema = self.client.get("/api/v1/modules/winch_drum/schema")
         self.assertEqual(schema.status_code, 200)
         self.assertIn("rated_line_pull_kn", schema.json()["input_schema"]["properties"])
 
-    def test_chinese_calculator_page_and_static_assets(self) -> None:
+    def test_platform_homepage_separates_available_and_planned_modules(self) -> None:
         response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("把机械计算，组织成可追溯的工程模块", response.text)
+        self.assertIn("工程模块中心", response.text)
+        self.assertIn("绞车与卷筒选型助手", response.text)
+        self.assertIn('href="/modules/winch_drum"', response.text)
+        for planned_name in ("机械传动快速校核", "轴与轴承初选", "电机与驱动功率", "气缸选型"):
+            self.assertIn(planned_name, response.text)
+        self.assertNotIn('href="/modules/transmission_check"', response.text)
+        self.assertEqual(self.client.get("/modules/transmission_check").status_code, 404)
+        self.assertIn("规划状态只表示产品路线", response.text)
+
+    def test_chinese_calculator_page_and_static_assets(self) -> None:
+        response = self.client.get("/modules/winch_drum")
         self.assertEqual(response.status_code, 200)
         self.assertIn("绞车与卷筒计算", response.text)
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
         self.assertIn('src="/static/calculator.js"', response.text)
-        self.assertEqual(self.client.get("/modules/winch_drum").status_code, 200)
+        self.assertIn('href="/#modules">模块中心</a>', response.text)
         script = self.client.get("/static/calculator.js")
         stylesheet = self.client.get("/static/app.css")
         self.assertEqual(script.status_code, 200)
@@ -78,7 +94,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("review_required", script.text)
 
     def test_record_fields_use_chinese_defaults_and_selectable_dictionaries(self) -> None:
-        page = self.client.get("/").text
+        page = self.client.get("/modules/winch_drum").text
         for field, value, option_list in (
             ("rope_type", "镀锌钢丝绳", "rope-type-options"),
             ("rope_construction", "6×36-IWRC", "rope-construction-options"),
@@ -95,7 +111,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("可从中文备选库选择，也可按实际工况填写", page)
 
     def test_every_public_input_has_a_form_control_or_explicit_source_wrapper(self) -> None:
-        page = self.client.get("/").text
+        page = self.client.get("/modules/winch_drum").text
         form_names = set(re.findall(r'name="([^"]+)"', page))
         schema = self.client.get("/api/v1/modules/winch_drum/schema").json()["input_schema"]
         aliases = {"dead_wrap_count": "dead_wraps"}
