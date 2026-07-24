@@ -75,11 +75,32 @@ class ApiTests(unittest.TestCase):
         self.assertIn("工程模块中心", response.text)
         self.assertIn("绞车与卷筒选型助手", response.text)
         self.assertIn('href="/modules/winch_drum"', response.text)
+        self.assertIn("data-home-animation", response.text)
+        self.assertIn('data-scroll-stage="modules"', response.text)
+        self.assertIn('data-scroll-stage="platform"', response.text)
+        self.assertIn('data-scroll-stage="extension"', response.text)
+        self.assertIn('src="/static/vendor/animejs/anime.umd.min.js"', response.text)
+        self.assertIn('src="/static/home-animation.js"', response.text)
         for planned_name in ("机械传动快速校核", "轴与轴承初选", "电机与驱动功率", "气缸选型"):
             self.assertIn(planned_name, response.text)
         self.assertNotIn('href="/modules/transmission_check"', response.text)
         self.assertEqual(self.client.get("/modules/transmission_check").status_code, 404)
         self.assertIn("规划状态只表示产品路线", response.text)
+
+        animation_script = self.client.get("/static/home-animation.js")
+        anime_bundle = self.client.get("/static/vendor/animejs/anime.umd.min.js")
+        self.assertEqual(animation_script.status_code, 200)
+        self.assertEqual(anime_bundle.status_code, 200)
+        self.assertIn("prefers-reduced-motion: reduce", animation_script.text)
+        self.assertIn("createDrawable", animation_script.text)
+        self.assertIn("setupScrollReveals", animation_script.text)
+        self.assertIn('trigger.dataset.scrollState = "visible"', animation_script.text)
+        self.assertIn(
+            'scrollDirection = currentScrollY < previousScrollY ? "up" : "down"',
+            animation_script.text,
+        )
+        self.assertIn('"return-pending"', animation_script.text)
+        self.assertIn("@version v4.5.0", anime_bundle.text)
 
     def test_head_seo_crawler_files_favicon_and_html_404(self) -> None:
         self.assertEqual(self.client.head("/").status_code, 200)

@@ -61,12 +61,16 @@
         </dl>
       </div>
 
-      <aside class="engineering-console" aria-label="绞车与卷筒模块示意">
+      <aside class="engineering-console" data-home-animation aria-label="绞车与卷筒模块动态示意">
         <div class="console-topline">
           <span>ACTIVE MODULE / 01</span>
+          <button class="console-replay" type="button" hidden aria-label="重播卷筒工程图启动动画">
+            REPLAY <span aria-hidden="true">↻</span>
+          </button>
           <span class="live-label"><i></i> READY</span>
         </div>
         <div class="console-drawing">
+          <div class="console-scanline" aria-hidden="true"></div>
           <svg viewBox="0 0 560 300" role="img" aria-label="卷筒与钢丝绳工程线稿">
             <g class="drawing-grid">
               <path d="M30 44H530M30 94H530M30 144H530M30 194H530M30 244H530"/>
@@ -105,7 +109,7 @@
       </aside>
     </section>
 
-    <section class="module-section" id="modules" aria-labelledby="module-title">
+    <section class="module-section" id="modules" data-scroll-stage="modules" aria-labelledby="module-title">
       <div class="section-heading section-heading--home">
         <div>
           <p class="section-index">01 / MODULE DIRECTORY</p>
@@ -187,7 +191,7 @@
       </div>
     </section>
 
-    <section class="platform-section" id="platform" aria-labelledby="platform-title">
+    <section class="platform-section" id="platform" data-scroll-stage="platform" aria-labelledby="platform-title">
       <div class="section-heading section-heading--home">
         <div>
           <p class="section-index">02 / PLATFORM CONTRACT</p>
@@ -203,7 +207,7 @@
       </ol>
     </section>
 
-    <section class="extension-section" id="extension" aria-labelledby="extension-title">
+    <section class="extension-section" id="extension" data-scroll-stage="extension" aria-labelledby="extension-title">
       <div class="extension-copy">
         <p class="section-index">03 / EXTENSION INTERFACE</p>
         <h2 id="extension-title">新增模块，不改平台主流程</h2>
@@ -218,7 +222,7 @@
     </section>
   </main>
 
-  <footer class="home-footer">
+  <footer class="home-footer" data-scroll-stage="footer">
     <div>
       <a class="brand brand--footer" href="/">
         <span class="brand-mark">W</span>
@@ -228,5 +232,7 @@
     </div>
     <p>平台输出不替代适用标准核查、结构强度与安全校核、制造商确认或工程审批。</p>
   </footer>
+  <script src="/static/vendor/animejs/anime.umd.min.js" defer></script>
+  <script src="/static/home-animation.js" defer></script>
 </body>
 </html>
