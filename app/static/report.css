@@ -1,21 +1,29 @@
 :root {
   color-scheme: light;
-  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
   color: #172033;
   background: #eef2f5;
+  text-rendering: optimizeLegibility;
+  --report-display: "Segoe UI Variable Display", "Segoe UI", "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  --report-mono: "Cascadia Mono", Consolas, monospace;
+  --report-navy: #173c70;
+  --report-muted: #64748b;
 }
-body { margin: 0; }
+body { margin: 0; color: #172033; background: #eef2f5; -webkit-font-smoothing: antialiased; }
 main {
   box-sizing: border-box;
   max-width: 1040px;
-  margin: 32px auto;
-  padding: 40px;
+  margin: 36px auto;
+  padding: 46px 48px;
   background: white;
   box-shadow: 0 14px 40px rgb(15 23 42 / 8%);
 }
-.eyebrow { margin: 0; color: #64748b; font-size: 12px; letter-spacing: .14em; }
-h1 { margin: 8px 0 22px; font-size: 30px; }
-h2 { margin: 34px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #dbe4ec; font-size: 19px; }
+.eyebrow { margin: 0; color: var(--report-muted); font: 700 11px/1.45 var(--report-mono); letter-spacing: .14em; }
+h1 { margin: 10px 0 24px; font-family: var(--report-display); font-size: 34px; font-weight: 740; line-height: 1.22; letter-spacing: -.035em; }
+h2 { margin: 38px 0 16px; padding-bottom: 9px; border-bottom: 2px solid #dbe4ec; font-family: var(--report-display); font-size: 20px; font-weight: 720; letter-spacing: -.02em; }
+p { line-height: 1.75; }
 .report-actions {
   display: flex;
   flex-wrap: wrap;
@@ -30,34 +38,35 @@ h2 { margin: 34px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #dbe4ec;
   justify-content: center;
   padding: 8px 16px;
   border: 1px solid #0f5c74;
-  border-radius: 8px;
+  border-radius: 5px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
   text-decoration: none;
 }
-.action-button--primary { color: #fff; background: #0f5c74; }
-.action-button--secondary { color: #0f5c74; background: #fff; }
+.action-button--primary { color: #fff; background: var(--report-navy); }
+.action-button--secondary { color: var(--report-navy); background: #fff; }
 .action-button:hover { filter: brightness(.94); }
 .action-button:focus-visible { outline: 3px solid #7dd3fc; outline-offset: 2px; }
-.metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 8px 24px; }
-.metadata div { display: grid; grid-template-columns: 130px 1fr; border-bottom: 1px solid #e6ebf0; padding: 6px 0; }
-dt { color: #64748b; }
+.metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 8px 28px; }
+.metadata div { display: grid; grid-template-columns: 132px 1fr; padding: 8px 0; border-bottom: 1px solid #e6ebf0; gap: 10px; }
+dt { color: var(--report-muted); font-size: 12.5px; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 8px 10px; border: 1px solid #ccd3dc; text-align: left; vertical-align: top; }
-th { background: #edf2f7; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.6; }
+th, td { padding: 9px 11px; border: 1px solid #d5dce5; text-align: left; vertical-align: top; }
+th { color: #334155; background: #edf2f7; font-weight: 700; }
 .field-key { display: block; margin-top: 2px; color: #64748b; font-weight: 400; }
 .reason-row td { color: #9a3412; background: #fff7ed; }
 .warning-list, .assumptions { display: grid; padding: 0; gap: 8px; list-style: none; }
-.warning, .assumptions li { display: grid; padding: 12px 14px; border-left: 4px solid #f59e0b; background: #fffbeb; gap: 3px; }
+.warning, .assumptions li { display: grid; padding: 13px 15px; border-left: 4px solid #f59e0b; background: #fffbeb; gap: 4px; line-height: 1.65; }
 .warning--high, .warning--blocking { border-color: #dc2626; background: #fef2f2; }
 .warning small { color: #475569; }
 .formula-list { display: grid; padding: 0; gap: 12px; list-style: none; counter-reset: formula-step; }
 .formula-card {
   overflow: hidden;
   border: 1px solid #cbd5e1;
-  border-radius: 10px;
+  border-radius: 7px;
   background: #f8fafc;
   break-inside: avoid;
 }
@@ -70,7 +79,7 @@ th { background: #edf2f7; }
   gap: 12px;
 }
 .formula-header div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-.formula-header strong { color: #0f5c74; font-size: 14px; }
+.formula-header strong { color: var(--report-navy); font-size: 14px; }
 .formula-header span { color: #475569; font-size: 12px; }
 .formula-sequence { font-variant-numeric: tabular-nums; }
 .formula-classification {
@@ -84,7 +93,7 @@ th { background: #edf2f7; }
   padding: 14px 16px;
   color: #172033;
   background: #fff;
-  font-family: "Cambria Math", "STIX Two Math", Consolas, monospace;
+  font-family: "Cambria Math", "STIX Two Math", var(--report-mono);
   font-size: 15px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -106,7 +115,7 @@ th { background: #edf2f7; }
   gap: 8px;
 }
 .formula-substitution dt, .formula-substitution dd { font-size: 12px; }
-.formula-substitution dd { color: #172033; font-family: Consolas, monospace; }
+.formula-substitution dd { color: #172033; font-family: var(--report-mono); }
 .formula-result {
   display: flex;
   align-items: baseline;
@@ -118,8 +127,8 @@ th { background: #edf2f7; }
   gap: 8px;
 }
 .formula-result strong {
-  color: #0f5c74;
-  font-family: Consolas, monospace;
+  color: var(--report-navy);
+  font-family: var(--report-mono);
   font-size: 15px;
   font-variant-numeric: tabular-nums;
 }
@@ -127,8 +136,11 @@ th { background: #edf2f7; }
 .disclaimer { margin-top: 36px; padding: 18px; border-left: 4px solid #b45309; background: #fff7ed; }
 .disclaimer p { margin-bottom: 0; }
 @media (max-width: 680px) {
-  main { margin: 0; padding: 20px; }
+  main { margin: 0; padding: 24px 18px 36px; box-shadow: none; }
+  h1 { font-size: 28px; }
+  h2 { margin-top: 32px; font-size: 19px; }
   .metadata { grid-template-columns: 1fr; }
+  .metadata div { grid-template-columns: 118px 1fr; }
   .report-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .formula-substitution dl { grid-template-columns: 1fr; }
 }

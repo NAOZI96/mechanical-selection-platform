@@ -76,11 +76,16 @@ def render_pdf(
             _input_table(report.original_inputs, styles),
             Paragraph("SI 标准化输入", styles["h2"]),
             _input_table(report.si_inputs, styles),
-            Paragraph("逐层容绳量", styles["h2"]),
-            _layer_table(report, styles),
-            Paragraph("公式与换算审计步骤", styles["h2"]),
         ]
     )
+    if report.layer_rows:
+        story.extend(
+            [
+                Paragraph("逐层容绳量", styles["h2"]),
+                _layer_table(report, styles),
+            ]
+        )
+    story.append(Paragraph("公式与换算审计步骤", styles["h2"]))
     for step in report.steps:
         story.append(_formula_block(step, styles))
         story.append(Spacer(1, 1.8 * mm))

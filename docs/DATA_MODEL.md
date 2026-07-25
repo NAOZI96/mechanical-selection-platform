@@ -1,6 +1,6 @@
 # 数据模型设计
 
-## C-08/C-09 冻结补充（snapshot schema v3 / report context schema v2）
+## C-08/C-09 冻结补充（snapshot schema v3 / report context schema v3）
 
 输入新增/确认拉力与速度位置、拉力类型、滑轮倍率/效率、实际槽距/槽数、死圈、安装预留、绳型/结构/材料、载荷谱、D/d、环境、制动轴/反向效率、工作制/启动次数/供电和功率系列。`dead_wrap_count` 兼容读取旧名 `dead_wraps`。
 
@@ -8,7 +8,9 @@
 
 警告包含 `code`、`severity`（`info|warning|high|blocking`）、`title`、`message`、`affected_result`、`recommended_action`。发布门禁只存状态：机械计算、产品范围、软件验收、质量安全和总发布状态；不存人员姓名或计划/实际日期。
 
-文档版本：0.2.0
+Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。模块软件发布状态来自代码注册表，不回写或改写历史计算快照。本轮没有新增 SQLite 迁移。
+
+文档版本：0.3.0
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 
@@ -20,14 +22,14 @@ calculation
   1 ─── 0..N audit_event（MVP 可选）
 ```
 
-模块目录来自代码注册表，不作为可在线编辑的数据库配置，避免数据库与已部署代码版本漂移。
+模块目录及 `internal_testing|engineering_review|released` 状态来自代码注册表，不作为可在线编辑的数据库配置，避免数据库与已部署代码版本漂移。当前注册表为 `winch_drum` 加 8 个扩展模块；注册数量变化不要求数据库迁移。
 
 ## 2. `calculations` 表
 
 | 列 | SQLite 类型 | 约束/索引 | 说明 |
 |---|---|---|---|
 | `id` | TEXT | PK | UUID。 |
-| `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`。 |
+| `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`、`transmission_check`、`gear_drive`；由保存时注册模块决定。 |
 | `module_version` | TEXT | NOT NULL | SemVer 字符串。 |
 | `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.0`。 |
 | `status` | TEXT | NOT NULL, CHECK | `completed` / `completed_with_warnings`。校验失败不建成功记录。 |
@@ -84,6 +86,8 @@ MVP 无账户体系时可暂缓。若保留，只记录事件类型、对象 ID�
 
 SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可选未知值使用 JSON `null`，禁止空字符串、0 或缺省含糊表达。
 
+八个扩展模块还保存 `basis_source_status`、`basis_reference` 及适用时的候选数据来源/引用。各模块输入字段不同，但都写入 `input_original_json` 和 `input_si_json`，不建立模块专属表。验证算例只是用户显式载入的普通输入，不作为数据库默认值。
+
 ### 5.2 结果
 
 ```json
@@ -98,6 +102,8 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 ```
 
 逐层数组中的每层保存层号、工作直径、每圈长度、完整/使用圈数、毛/可用/累计容量。展示字符串不作为数值真源。
+
+扩展模块结果同样使用带 `value`、`unit`、`classification`、`formula_ids` 和可选 `reason` 的标量对象；模块专属结果保存在 `results_json`，不可计算结论使用 `value=null` 且分类为 `review_required`。只有 `winch_drum` 需要逐层容量数组。
 
 ### 5.3 假设与确认
 
@@ -119,9 +125,16 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 - 当前不自动删除计算记录或 PDF；项目持久化容量上限 5 GiB，达到 85% 后停止生成新 PDF。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
 - 备份至少包含 SQLite 一致性备份与报告清单；PDF 可由快照重建，但模板版本/字体变化可能改变二进制，因此重要报告需单独归档。
 
-## 8. 数据模型验收
+## 8. Phase 7 无迁移结论
 
-- 可以保存并完整读取方案 A 以及一个虚拟方案 B 快照，不改表结构。
+- `001_initial.sql`～`004_report_context.sql` 已能容纳九模块快照和报告 DTO；Phase 7 不新增迁移文件。
+- `module_id`、模块/模型版本和快照 schema 已足以区分各模块；增加专属列会破坏通用注册契约，因此不采用。
+- `release_status` 是当前代码的发布门禁元数据，不是计算结果。历史快照继续保存当次模块/模型/报告模板版本，读取时不按当前状态重算。
+- 九模块远程部署仍须先执行迁移 `--check`、旧快照读取和隔离备份恢复；“无需迁移”不等于可以跳过备份与检查。
+
+## 9. 数据模型验收
+
+- 可以保存并完整读取 9 个已注册模块的快照、HTML 报告上下文和 PDF artifact，不改表结构。
 - 旧计算模型版本在新版本发布后仍能读取；只有保存了对应报告上下文的快照才允许生成 PDF，缺失时返回受控 `REPORT_CONTEXT_MISSING`，不得用当前模型静默补算。
 - 数据库约束拒绝非法状态组合；应用测试验证 JSON schema。
 - 在线备份期间可继续只读/短写操作，恢复后记录数、哈希和抽样报告一致。

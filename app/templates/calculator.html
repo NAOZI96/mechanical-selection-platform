@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  {% if module.release_status != "released" %}<meta name="robots" content="noindex,nofollow">{% endif %}
   <meta name="description" content="绞车卷筒、逐层容绳量、电机功率、参考减速比和静态制动力矩的确定性工程计算与初步选型工具。">
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/winch_drum">{% endif %}
   <title>绞车卷筒与容绳量计算｜WinchCalc Engineering</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/app.css?v=20260724.2">
+    <link rel="stylesheet" href="/static/app.css?v=20260724.4">
     <script src="/static/calculator.js?v=20260724.2" defer></script>
 </head>
 <body>

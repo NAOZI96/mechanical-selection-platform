@@ -57,21 +57,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/health/live").json(), {"status": "live"})
         self.assertEqual(self.client.get("/health/ready").json(), {"status": "ready"})
         modules = self.client.get("/api/v1/modules").json()
-        self.assertEqual([module["module_id"] for module in modules], ["winch_drum"])
-        self.assertEqual(modules[0]["category"], "起重与牵引")
-        self.assertEqual(modules[0]["entry_path"], "/modules/winch_drum")
-        self.assertIn("逐层容绳", modules[0]["description"])
+        self.assertEqual(
+            {module["module_id"] for module in modules},
+            {
+                "winch_drum",
+                "transmission_check",
+                "gear_drive",
+                "shaft_bearing",
+                "lead_screw",
+                "synchronous_belt",
+                "motor_drive",
+                "stepper_motor",
+                "pneumatic_cylinder",
+            },
+        )
+        self.assertEqual(len(modules), 9)
+        winch = next(module for module in modules if module["module_id"] == "winch_drum")
+        self.assertEqual(winch["category"], "起重与牵引")
+        self.assertEqual(winch["entry_path"], "/modules/winch_drum")
+        self.assertEqual(winch["release_status"], "engineering_review")
+        self.assertIn("逐层容绳", winch["description"])
+        for module in modules:
+            self.assertTrue(module["available"])
+            self.assertIsNotNone(module["entry_path"])
+            self.assertIn(
+                module["release_status"],
+                {"internal_testing", "engineering_review", "released"},
+            )
         schema = self.client.get("/api/v1/modules/winch_drum/schema")
         self.assertEqual(schema.status_code, 200)
         self.assertIn("rated_line_pull_kn", schema.json()["input_schema"]["properties"])
 
-    def test_platform_homepage_separates_available_and_planned_modules(self) -> None:
+    def test_platform_homepage_exposes_nine_registered_modules_with_release_boundaries(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("船舶与海工绞车智能设计计算平台", response.text)
-        self.assertIn("WinchCalc Engineering", response.text)
-        self.assertIn("winch drum calculation", response.text)
-        self.assertIn("静态制动力矩计算", response.text)
+        self.assertIn("机械设备计算与选型平台", response.text)
+        self.assertIn("Mechanical Selection Platform", response.text)
         self.assertIn("全部功能模块", response.text)
         self.assertIn("绞车与卷筒选型助手", response.text)
         self.assertGreaterEqual(response.text.count('href="/modules/winch_drum"'), 3)
@@ -89,11 +110,24 @@ class ApiTests(unittest.TestCase):
         self.assertIn('data-scroll-stage="extension"', response.text)
         self.assertIn('src="/static/vendor/animejs/anime.umd.min.js"', response.text)
         self.assertIn('src="/static/home-animation.js?v=20260724.3"', response.text)
-        for planned_name in ("机械传动快速校核", "轴与轴承初选", "电机与驱动功率", "气缸选型"):
-            self.assertIn(planned_name, response.text)
-        self.assertNotIn('href="/modules/transmission_check"', response.text)
-        self.assertEqual(self.client.get("/modules/transmission_check").status_code, 404)
-        self.assertIn("完成独立计算规格、验证与工程审核后开放", response.text)
+        self.assertIn("9 个已接入 · 0 个规划中", response.text)
+        self.assertIn("工程审核中", response.text)
+        self.assertGreaterEqual(response.text.count("内部测试"), 8)
+        for module_id, module_name in (
+            ("transmission_check", "机械传动快速校核"),
+            ("gear_drive", "齿轮传动设计"),
+            ("shaft_bearing", "轴与轴承初选"),
+            ("lead_screw", "丝杆传动选型"),
+            ("synchronous_belt", "同步带传动选型"),
+            ("motor_drive", "电机与驱动功率选型"),
+            ("stepper_motor", "步进电机选型"),
+            ("pneumatic_cylinder", "气缸选型"),
+        ):
+            with self.subTest(module_id=module_id):
+                self.assertIn(module_name, response.text)
+                self.assertIn(f'href="/modules/{module_id}"', response.text)
+                self.assertEqual(self.client.get(f"/modules/{module_id}").status_code, 200)
+        self.assertNotIn("规划中 · 待开放", response.text)
 
         animation_script = self.client.get("/static/home-animation.js")
         anime_bundle = self.client.get("/static/vendor/animejs/anime.umd.min.js")
@@ -136,7 +170,12 @@ class ApiTests(unittest.TestCase):
             self.assertIn(f"Sitemap: {public_url}/sitemap.xml", public_client.get("/robots.txt").text)
             sitemap = public_client.get("/sitemap.xml")
             self.assertEqual(sitemap.status_code, 200)
-            self.assertIn(f"<loc>{public_url}/modules/winch_drum</loc>", sitemap.text)
+            self.assertIn(f"<loc>{public_url}/</loc>", sitemap.text)
+            self.assertNotIn("/modules/", sitemap.text)
+            self.assertIn(
+                '<meta name="robots" content="noindex,nofollow">',
+                public_client.get("/modules/winch_drum").text,
+            )
 
     def test_chinese_calculator_page_and_static_assets(self) -> None:
         response = self.client.get("/modules/winch_drum")
@@ -149,7 +188,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn('data-state="idle"', response.text)
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
-        self.assertIn('href="/static/app.css?v=20260724.2"', response.text)
+        self.assertIn('href="/static/app.css?v=20260724.4"', response.text)
         self.assertIn('src="/static/calculator.js?v=20260724.2"', response.text)
         self.assertIn('href="/#modules">模块中心</a>', response.text)
         script = self.client.get("/static/calculator.js")
@@ -168,6 +207,9 @@ class ApiTests(unittest.TestCase):
         self.assertIn("renderSnapshot(state.snapshot, {focus: false})", script.text)
         self.assertIn("当前浏览器标签页访问期间自动保留", response.text)
         self.assertIn("[hidden] { display: none !important; }", stylesheet.text)
+        self.assertIn('--font-display: "Segoe UI Variable Display"', stylesheet.text)
+        self.assertIn('--font-mono: "Cascadia Mono"', stylesheet.text)
+        self.assertIn("font-size: 13px; font-weight: 680", stylesheet.text)
 
     def test_record_fields_use_chinese_defaults_and_selectable_dictionaries(self) -> None:
         page = self.client.get("/modules/winch_drum").text

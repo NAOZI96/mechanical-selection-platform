@@ -1,9 +1,9 @@
 # 部署设计
 
-文档版本：0.3.0
+文档版本：0.4.0
 
 目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘
-状态：Phase 4 目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁
+状态：Phase 4 首发模块目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁。Phase 7 九模块版本仅完成本地集成，未执行远程部署或目标机资源复验。
 
 ## 1. 部署边界
 
@@ -12,6 +12,7 @@
 - 默认只绑定宿主机 `127.0.0.1` 的未占用高位端口，由现有反向代理按独立域名/路径转发；上线前必须盘点端口、网络、磁盘和现有 Compose 项目。
 - 不修改青龙、OpenClaw、Mihomo 或其他容器的网络、端口、卷、重启策略和配置。
 - 不把约 10 GB Swap 当作可用应用内存；Swap 只用于突发保护，持续换页视为容量失败。
+- 九模块仍复用同一 FastAPI 单 worker、SQLite 和受限 PDF 子进程。本轮没有新增数据库迁移、数据库服务、消息队列或其他常驻服务。
 
 ## 2. 容器与目录
 
@@ -76,6 +77,7 @@ PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像
 - 仅反向代理对外；应用端口绑定回环地址。复用现有代理前先只读确认配置，不覆盖。
 - HTTPS、请求大小、基础限流和安全头由代理与应用共同落实。
 - 生产环境通过 `.env` 设置 `DESIGN_AGENT_PUBLIC_BASE_URL`，用于 canonical、Open Graph URL、`robots.txt` 和 `sitemap.xml`；仓库不写死实际域名。
+- 模块页面只有在 `release_status=released` 后才进入生产 sitemap；`internal_testing` 与 `engineering_review` 页面不得因软件可进入而被标记为工程已发布。
 - `.env` 仅保存随机密钥和部署配置，权限 0600；不把秘密写入镜像、仓库或日志。
 - 固定基础镜像摘要/依赖版本，构建时生成依赖清单；定期安全更新需先在预发布回归。
 - 容器 `read_only`、`no-new-privileges`、删除不需要的 Linux capabilities；健康检查不暴露内部信息。
@@ -139,3 +141,22 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 - 反向代理仍只访问 `127.0.0.1:18080`，增加 3 s 连接窗口、10 s 响应头超时和 503 友好错误；
 - 应用补充首页/模块 HEAD、HTML 404、favicon、canonical、Open Graph、`robots.txt` 和 `sitemap.xml`；
 - 外部 TCP 抓包显示 ClientHello 到达主机后连接立即被复位，而本机同证书/TLS 链路正常；固定解析到服务器 IP 的 HTTP 请求被腾讯云改写为指向 `dnspod.qcloud.com/static/webblock.html` 的 302。故障位于腾讯云域名访问门禁，不在应用、Caddy 或证书链。必须由域名主体在腾讯云控制台确认并完成 ICP 首次备案、接入备案或新增服务后再做国内外复测。不得通过临时开放不受控端口或绕过备案替代正式处理。
+
+## 13. Phase 7 九模块部署边界
+
+本轮新增 `transmission_check`、`gear_drive`、`shaft_bearing`、`lead_screw`、`synchronous_belt`、`motor_drive`、`stepper_motor` 和 `pneumatic_cylinder`，但只完成本地软件集成：
+
+- 沿用现有通用 JSON 快照和报告表，没有新增或修改 SQLite 迁移；
+- 沿用同一 Web worker、Jinja2、原生 JavaScript/CSS 和按请求启动的受限 PDF 子进程，没有新增常驻服务；
+- 没有修改目标主机、Compose、Caddy、青龙、OpenClaw、Mihomo 或其他现有服务；
+- 没有构建/推送九模块生产镜像，也没有执行远程切换、数据迁移或公网复测；
+- Phase 4 的性能与恢复数据是历史有效证据，但不能代表九模块镜像已通过相同资源门禁。
+
+九模块远程部署前，除第 8～10 节流程外，还必须：
+
+1. 确认注册表精确返回 9 个模块及正确 `release_status`，并阻止未放行模块进入 sitemap；
+2. 在隔离备份后执行迁移检查，确认 schema 无变化且旧 `winch_drum` 快照/报告可读；
+3. 对九个模块分别完成计算、GET 快照、HTML 和 PDF 冒烟，确认报告返回对应模块页面；
+4. 重跑 1000 次代表性混合计算、20 份混合模块 PDF、5 并发 PDF 和资源采样；
+5. 复核数据库/报告容量、备份恢复、临时文件清理以及青龙、Mihomo、OpenClaw 健康状态；
+6. 机械门禁未关闭的模块继续保持 `internal_testing` 或 `engineering_review`，不得仅因部署成功提升为 `released`。

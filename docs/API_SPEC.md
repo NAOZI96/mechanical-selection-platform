@@ -1,8 +1,8 @@
 # API 规格
 
-文档版本：0.3.0
+文档版本：0.4.0
 API 版本：`v1`  
-首发模块：`winch_drum`
+已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
 ## 1. 通用约定
 
@@ -12,6 +12,7 @@ API 版本：`v1`
 - 计算成功状态：`completed` 或 `completed_with_warnings`；字段可部分不可计算时，用 `null + classification=review_required`，不得伪造 0。
 - 相同输入不保证返回相同 calculation ID，但在相同 `calculation_model_version` 下应有相同规范化结果。
 - 错误结构统一，HTTP 状态码不混入工程警告。
+- `available=true` 只表示模块软件可进入；工程发布状态以 `release_status` 为准。当前 `winch_drum=engineering_review`，其余八模块均为 `internal_testing`。
 
 ## 2. 端点
 
@@ -23,26 +24,42 @@ API 版本：`v1`
 ### 2.1A Web 页面
 
 - `GET /`：机械智选平台主页；展示运行时已注册模块和只读规划目录。
-- `GET /modules/{module_id}`：已注册模块的统一页面入口；当前 `winch_drum` 使用 `/modules/winch_drum`。
+- `GET /modules/{module_id}`：九个已注册模块的统一页面入口，例如 `/modules/winch_drum`、`/modules/transmission_check`。
 - `HEAD /`、`HEAD /modules/{module_id}`：供可用性探针和爬虫做轻量状态检查。
 - `GET /robots.txt`：允许抓取；生产环境配置公共站点根地址后附带 sitemap 地址。
-- `GET /sitemap.xml`：只在生产环境配置公共站点根地址时返回首页和已开放模块 URL，否则返回 404。
+- `GET /sitemap.xml`：只在生产环境配置公共站点根地址时返回；首页始终可列入，模块 URL 只在对应 `release_status=released` 时列入。
 
-主页的“可用”状态和页面入口来自运行时注册表；规划模块不进入此 API，也不生成伪入口。浏览器请求不存在的页面时返回带请求 ID 的 HTML 404，API 客户端仍收到统一 JSON 错误。模块页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
+主页的软件可用状态、工程发布状态和页面入口来自运行时注册表；规划模块不进入此 API，也不生成伪入口。浏览器请求不存在的页面时返回带请求 ID 的 HTML 404，API 客户端仍收到统一 JSON 错误。模块页面使用原生 JavaScript 调用统一计算 API；测试金样必须由用户显式载入并标明“非推荐参数”。页面不得自行实现公式或绕过后端 Pydantic 校验。
 
 ### 2.2 模块发现
 
 `GET /api/v1/modules`
 
-返回已启用模块的 `module_id`、名称、模块版本、计算模型版本、说明、分类、页面入口和可用状态。`entry_path` 仅在模块注册了受信任的 Jinja2 页面模板时返回，否则为 `null`。
+返回已启用模块的 `module_id`、名称、模块版本、计算模型版本、说明、分类、页面入口、软件可用状态和 `release_status`。`entry_path` 仅在模块注册了受信任的 Jinja2 页面模板时返回，否则为 `null`。
+
+当前注册表应返回以下 9 个 ID：
+
+| `module_id` | `release_status` |
+|---|---|
+| `winch_drum` | `engineering_review` |
+| `transmission_check` | `internal_testing` |
+| `gear_drive` | `internal_testing` |
+| `shaft_bearing` | `internal_testing` |
+| `lead_screw` | `internal_testing` |
+| `synchronous_belt` | `internal_testing` |
+| `motor_drive` | `internal_testing` |
+| `stepper_motor` | `internal_testing` |
+| `pneumatic_cylinder` | `internal_testing` |
 
 `GET /api/v1/modules/{module_id}/schema`
 
-返回表单字段、单位、必填性、约束、默认行为、枚举、帮助文字和结果定义。该 schema 用于页面生成辅助，但后端 Pydantic 模型仍是校验权威。
+返回 `module_id`、`release_status`、增强后的 `input_schema`、`result_schema`、`result_labels` 和 `example_input`。输入 schema 含字段单位、分组、约束和中文标签；显式验证算例只用于软件验证，不是项目默认或推荐参数。该 schema 用于页面生成辅助，但后端 Pydantic 模型仍是校验权威。
 
 ### 2.3 创建计算
 
-`POST /api/v1/modules/winch_drum/calculations`
+`POST /api/v1/modules/{module_id}/calculations`
+
+九个已注册模块都使用该通用路径。以下仍以 `winch_drum` 请求体说明首发模块的具体字段：
 
 请求体：
 
@@ -139,7 +156,7 @@ API 版本：`v1`
 - `GET /calculations/{calculation_id}/report`：Jinja2 HTML 报告。
 - `GET /api/v1/calculations/{calculation_id}/report.pdf`：若已有且哈希/模板版本匹配则下载；否则从持久化报告 DTO 同步生成，限并发 1。繁忙固定返回 `429 PDF_BUSY` 和 `Retry-After: 2`；超时、容量或渲染失败返回受控 `503`。
 
-HTML 报告提供返回 `winch_drum` 计算页和下载同一计算记录 PDF 的明确入口。HTML/PDF 从计算时持久化的同一份未舍入报告 DTO 渲染，包含原始/SI 输入、关键结果、公式、逐层容量、来源、警告、版本和免责声明；面向用户的字段、结果等级、来源状态和专项校核项使用中文展示。公式审计按公式编号、表达式、代入值和结果分层显示，展示优化不改变保存的表达式、变量或计算值。PDF 使用固定字体/模板版本，生成文件经大小、SHA-256、原子落盘和缓存完整性校验。
+HTML 报告按快照中的 `module_id` 返回对应计算页，并提供下载同一计算记录 PDF 的明确入口。HTML/PDF 从计算时持久化的同一份未舍入报告 DTO 渲染，包含原始/SI 输入、关键结果、公式、来源、警告、版本和免责声明；`winch_drum` 另含逐层容量表。面向用户的字段、结果等级、来源状态和专项校核项使用中文展示。公式审计按公式编号、表达式、代入值和结果分层显示，展示优化不改变保存的表达式、变量或计算值。PDF 使用固定字体/模板版本，生成文件经大小、SHA-256、原子落盘和缓存完整性校验。
 
 MVP 不提供任意目录文件名，不接受模板路径，不把 calculation ID 直接拼入文件系统路径。
 
@@ -185,6 +202,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 - 实际第一层绳中心直径 D/d 低于 `minimum_dd_ratio`：返回 `W_DD_RATIO_BELOW_MINIMUM` 高风险警告，包含实际比值、要求直径和按 `D=D_core+d` 反求的建议最小芯径；页面不得据此输出整机“设计合格”。
 - 缺芯径且无批准 D/d：采用显式项目初选比 20；相关几何结果为 `preliminary` 并产生 D/d/标准条款警告。
 - 缺反向效率且未显式允许近似：高速轴制动力矩为 `review_required`，低速轴静态参考仍返回。
+- 八个扩展模块要求填写总依据状态和依据引用；凡工程系数、额定能力或制造商候选数据参与判断，必须同时提交对应来源状态与引用。缺少可计算输入返回 422；未提供可选候选额定值时保持基础计算并把相应选型结论列为待校核，不伪造通过值。
 
 ## 4. 结果、公式步骤与报告上下文
 
@@ -212,7 +230,7 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `module_version` 标识模块接口和用户可见行为。
 - `calculation_model_version` 标识数值模型、输入语义、默认值和警告规则。
 - 增加可选字段可保持 API v1；改变字段语义、公式或默认值必须更新计算模型版本，并保留读取旧快照能力。
-- 方案 B 使用相同通用端点 `/api/v1/modules/transmission_check/calculations`，其专属输入/结果由注册模块 schema 决定。
+- 八个扩展模块均使用相同通用端点；每个模块的专属输入/结果由其注册 Pydantic schema 决定。需求、公式和证据见 [`MODULE_REQUIREMENTS.md`](MODULE_REQUIREMENTS.md)、[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md) 和 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。
 
 ## 6. API 验收
 
@@ -221,3 +239,4 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - 相同模型版本和 SI 输入的结果 JSON（除 ID/时间）稳定一致。
 - `null` 结果必带 `review_required` 与原因，0 值不得代表未知。
 - HTML/PDF 与 GET calculation 的关键值源自同一快照。
+- 模块发现精确返回 9 个注册 ID 及上述发布状态；每个模块的页面、schema、POST、GET、HTML 和 PDF 路径均有本地回归。

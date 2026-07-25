@@ -3,24 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="船舶与海工绞车工程计算平台，提供卷筒设计、逐层容绳量、电机功率、参考减速比和静态制动力矩计算，并保留公式、输入快照与模型版本。">
+  <meta name="description" content="可审计的机械设备计算与选型平台，覆盖绞车卷筒、传动链、齿轮、轴承、丝杠、同步带、电机、步进电机和气缸，并保留公式、来源、输入快照与模型版本。">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="WinchCalc Engineering｜船舶与海工绞车设计计算平台">
-  <meta property="og:description" content="可追溯的 marine winch design、winch drum calculation 与 wire rope capacity 初步计算工具。">
+  <meta property="og:title" content="机械智选｜机械设备计算与选型平台">
+  <meta property="og:description" content="面向机械设计人员的确定性工程初算、候选校核与同源报告平台。">
   {% if public_base_url %}
   <link rel="canonical" href="{{ public_base_url }}/">
   <meta property="og:url" content="{{ public_base_url }}/">
   {% endif %}
-  <title>WinchCalc Engineering｜船舶与海工绞车设计计算平台</title>
+  <title>机械智选｜机械设备计算与选型平台</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260724.3">
+  <link rel="stylesheet" href="/static/app.css?v=20260724.4">
 </head>
 <body class="home-page">
   <header class="site-header home-header">
     <a class="brand" href="/" aria-label="机械智选首页">
-      <span class="brand-mark">W</span>
-      <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
     </a>
     <nav class="site-nav" aria-label="主页导航">
       <a href="#modules">全部功能</a>
@@ -35,12 +35,12 @@
   <main class="home-main">
     <section class="home-hero" aria-labelledby="home-title">
       <div class="home-hero__copy">
-        <p class="home-kicker"><span></span> MARINE WINCH ENGINEERING CALCULATOR</p>
-        <h1 id="home-title">船舶与海工绞车智能设计计算平台</h1>
+        <p class="home-kicker"><span></span> MECHANICAL SELECTION ENGINEERING PLATFORM</p>
+        <h1 id="home-title">机械设备计算与选型平台</h1>
         <p class="home-intro">
-          根据拉力、速度、容绳量、钢丝绳与工作级别记录，完成卷筒设计、逐层容绳量、电机功率、
-          参考减速比和静态制动力矩计算。结果用于方案比较与初步选型，不替代结构强度、疲劳、
-          动态制动、船级社审图或具备资质的工程师审核。
+          以确定性 Python 和统一 SI 单位完成九类机械工程初算与候选校核，保存输入来源、公式步骤、
+          模型版本和同源报告。结果用于受控方案比较，不替代正式标准核查、制造商确认、结构与安全专项
+          校核或具备资质的工程师审核。
         </p>
         <div class="home-actions">
           {% if featured_module and featured_module.entry_path %}
@@ -50,7 +50,7 @@
           {% endif %}
         </div>
         <dl class="hero-metrics" aria-label="平台概况">
-          <div><dt>{{ "%02d"|format(available_count) }}</dt><dd>已开放模块</dd></div>
+          <div><dt>{{ "%02d"|format(available_count) }}</dt><dd>已接入模块</dd></div>
           <div><dt>{{ "%02d"|format(planned_count) }}</dt><dd>规划模块</dd></div>
           <div><dt>SI</dt><dd>内部统一单位</dd></div>
           <div><dt>V1</dt><dd>统一模块接口</dd></div>
@@ -102,7 +102,7 @@
           <p class="section-index">01 / MODULE DIRECTORY</p>
           <h2 id="module-title">全部功能模块</h2>
         </div>
-        <p>从上方轮转展台或下方目录进入已开放模块。规划模块展示产品路线，完成独立计算规格、验证与工程审核后开放。</p>
+        <p>从上方轮转展台或下方目录进入已接入模块。每个模块独立显示软件接入状态与工程发布状态，内部测试不等于工程放行。</p>
       </div>
 
       {% if module_catalog %}
@@ -134,7 +134,7 @@
             </div>
             <div class="featured-module__content">
               <div class="module-meta">
-                <span class="status-pill status-pill--{{ item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.status_label }}</span>
+                <span class="status-pill status-pill--{{ item.engineering_release_status or item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.engineering_release_label or item.status_label }}</span>
                 <span>{{ item.category }}</span>
                 {% if item.module_version %}<span>模块 v{{ item.module_version }}</span>{% endif %}
               </div>
@@ -178,14 +178,14 @@
 
       <div class="directory-heading">
         <span>DIRECTORY / {{ "%02d"|format(module_catalog|length) }}</span>
-        <p>{{ available_count }} 个已开放 · {{ planned_count }} 个规划中</p>
+        <p>{{ available_count }} 个已接入 · {{ planned_count }} 个规划中</p>
       </div>
       <div class="module-grid module-grid--directory">
         {% for item in module_catalog %}
         <article class="module-card module-card--{{ item.status }}">
           <div class="module-card__top">
             <span class="module-code">{{ "%02d"|format(loop.index) }}</span>
-            <span class="status-pill status-pill--{{ item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.status_label }}</span>
+            <span class="status-pill status-pill--{{ item.engineering_release_status or item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.engineering_release_label or item.status_label }}</span>
           </div>
           <p class="module-category">{{ item.category }}</p>
           <h3>{{ item.module_name }}</h3>
@@ -234,10 +234,10 @@
   <footer class="home-footer" data-scroll-stage="footer">
     <div>
       <a class="brand brand--footer" href="/">
-        <span class="brand-mark">W</span>
-        <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
+        <span class="brand-mark">M</span>
+        <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
       </a>
-      <p>Marine winch design · winch drum calculation · wire rope capacity · motor power · brake torque。</p>
+      <p>Mechanical calculation · deterministic SI models · candidate checks · auditable reports。</p>
     </div>
     <p>平台输出不替代适用标准核查、结构强度与安全校核、制造商确认或工程审批。</p>
   </footer>

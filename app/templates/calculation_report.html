@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ report.title }}｜{{ report.calculation_id }}</title>
-  <link rel="stylesheet" href="/static/report.css">
+  <link rel="stylesheet" href="/static/report.css?v=20260724.4">
 </head>
 <body>
   <main>
@@ -12,7 +12,7 @@
       <p class="eyebrow">MECHANICAL DESIGN CALCULATION</p>
       <h1>{{ report.title }}</h1>
       <nav class="report-actions no-print" aria-label="报告操作">
-        <a class="action-button action-button--secondary" href="/modules/winch_drum">返回计算页</a>
+        <a class="action-button action-button--secondary" href="/modules/{{ report.module_id }}">返回计算页</a>
         <a class="action-button action-button--primary" href="/api/v1/calculations/{{ report.calculation_id }}/report.pdf">下载 PDF</a>
       </nav>
       <dl class="metadata">
@@ -85,6 +85,7 @@
       </div>
     </section>
 
+    {% if report.layer_rows %}
     <section>
       <h2>逐层容绳量</h2>
       <div class="table-wrap">
@@ -106,6 +107,7 @@
         </table>
       </div>
     </section>
+    {% endif %}
 
     <section>
       <h2>公式与换算审计步骤</h2>

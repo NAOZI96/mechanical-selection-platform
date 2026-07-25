@@ -38,7 +38,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
         yield
 
-    app = FastAPI(title="机械智选 · WinchCalc Engineering", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="机械智选 · Mechanical Selection Platform", version="0.5.0", lifespan=lifespan)
     app.state.settings = app_settings
     repository = CalculationRepository(app_settings.database_path)
     service = CalculationService(repository, active_registry.get)
@@ -174,11 +174,16 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         if not app_settings.public_base_url:
             raise HTTPException(status_code=404, detail="未配置公共站点地址")
         base_url = escape(app_settings.public_base_url, quote=True)
+        module_urls = "".join(
+            f"<url><loc>{base_url}/modules/{module.module_id}</loc><priority>0.9</priority></url>"
+            for module in active_registry.list()
+            if module.web_template and module.release_status == "released"
+        )
         body = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
             f"<url><loc>{base_url}/</loc><priority>1.0</priority></url>"
-            f"<url><loc>{base_url}/modules/winch_drum</loc><priority>0.9</priority></url>"
+            f"{module_urls}"
             "</urlset>"
         )
         return Response(content=body, media_type="application/xml")
@@ -205,6 +210,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 "category": module.category,
                 "entry_path": f"/modules/{module.module_id}" if module.web_template else None,
                 "available": True,
+                "release_status": module.release_status,
             }
             for module in active_registry.list()
         ]
@@ -212,10 +218,17 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
     @app.get("/api/v1/modules/{module_id}/schema")
     def module_schema(module_id: str) -> dict[str, Any]:
         module = module_or_404(module_id)
+        input_schema = module.input_model.model_json_schema()
+        _enrich_input_schema(input_schema, module.input_labels, module.example_input)
         return {
             "module_id": module.module_id,
-            "input_schema": module.input_model.model_json_schema(),
+            "release_status": module.release_status,
+            "input_schema": input_schema,
             "result_schema": module.result_model.model_json_schema(),
+            "result_labels": dict(module.result_labels),
+            "unchecked_labels": dict(module.unchecked_labels),
+            "assumption_labels": dict(module.assumption_labels),
+            "example_input": dict(module.example_input),
         }
 
     @app.post("/api/v1/modules/{module_id}/calculations", status_code=201)
@@ -278,7 +291,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         return FileResponse(
             path,
             media_type="application/pdf",
-            filename=f"winch-drum-{calculation_id}.pdf",
+            filename=f"{snapshot['module_id']}-{calculation_id}.pdf",
             headers={
                 "ETag": f'"{artifact["sha256"]}"',
                 "X-Report-SHA256": str(artifact["sha256"]),
@@ -316,6 +329,85 @@ def _validation_error(request_id: str, errors: list[dict[str, Any]]) -> JSONResp
             }
         },
     )
+
+
+def _enrich_input_schema(
+    schema: dict[str, Any],
+    input_labels: tuple[tuple[str, str], ...],
+    example_input: tuple[tuple[str, object], ...],
+) -> None:
+    """Add user-facing metadata without changing Pydantic validation."""
+
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return
+    labels = dict(input_labels)
+    examples = dict(example_input)
+    for field_name, field_schema in properties.items():
+        if not isinstance(field_schema, dict):
+            continue
+        if field_name in labels:
+            field_schema["title"] = labels[field_name]
+        field_schema.setdefault(
+            "description",
+            "按实际工况或已确认的候选数据填写；工程系数和额定能力必须与所填依据版本一致。",
+        )
+        unit = _display_unit_from_field_name(field_name)
+        if unit:
+            field_schema.setdefault("unit", unit)
+        field_schema.setdefault("group", _input_group(field_name))
+        if field_name in examples:
+            field_schema["examples"] = [examples[field_name]]
+
+
+def _display_unit_from_field_name(field_name: str) -> str | None:
+    exact_units = {
+        "driver_teeth": "齿",
+        "driven_teeth": "齿",
+        "pinion_teeth": "齿",
+        "gear_teeth": "齿",
+        "full_steps_per_revolution": "整步/r",
+        "microstep_divisor": "微步/整步",
+        "lead_mm_per_revolution": "mm/r",
+    }
+    if field_name in exact_units:
+        return exact_units[field_name]
+    suffixes = (
+        ("_mm_per_revolution", "mm/r"),
+        ("_kg_m2", "kg·m²"),
+        ("_m3_min", "m³/min"),
+        ("_m_per_s", "m/s"),
+        ("_m_s", "m/s"),
+        ("_rad_s2", "rad/s²"),
+        ("_rad_s", "rad/s"),
+        ("_n_m", "N·m"),
+        ("_mpa", "MPa"),
+        ("_gpa", "GPa"),
+        ("_pa", "Pa"),
+        ("_rpm", "r/min"),
+        ("_mm", "mm"),
+        ("_deg", "°"),
+        ("_kw", "kW"),
+        ("_w", "W"),
+        ("_n", "N"),
+        ("_s", "s"),
+        ("_hz", "Hz"),
+        ("_l_min", "L/min"),
+        ("_percent", "%"),
+        ("_m", "m"),
+    )
+    for suffix, unit in suffixes:
+        if field_name.endswith(suffix):
+            return unit
+    return None
+
+
+def _input_group(field_name: str) -> str:
+    if field_name.startswith(("basis_", "candidate_")) or "source_status" in field_name or "reference" in field_name:
+        return "依据与候选数据"
+    if any(token in field_name for token in ("efficiency", "factor", "coefficient", "exponent", "ratio")):
+        return "工程系数与模型"
+    return "工况与几何"
 
 
 app = create_app()

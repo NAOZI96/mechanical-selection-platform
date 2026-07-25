@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="{{ module.module_name }}：确定性 SI 工程初算、候选校核、公式审计与同源报告。">
+  {% if module.release_status != "released" %}<meta name="robots" content="noindex,nofollow">{% endif %}
+  <title>{{ module.module_name }}｜机械智选</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v=20260724.4">
+  <link rel="stylesheet" href="/static/engineering.css?v=20260724.2">
+</head>
+<body
+  class="engineering-page"
+  data-engineering-workbench
+  data-module-id="{{ module.module_id }}"
+  data-module-name="{{ module.module_name }}"
+  data-release-status="{{ module.release_status }}"
+>
+  <header class="site-header engineering-header">
+    <a class="brand" href="/" aria-label="机械智选首页">
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
+    </a>
+    <nav class="site-nav" aria-label="模块导航">
+      <a href="/#modules">模块中心</a>
+      <a href="/docs">API 文档</a>
+    </nav>
+    <span class="engineering-version">
+      {% if module.release_status == "internal_testing" %}内部测试
+      {% elif module.release_status == "engineering_review" %}工程审核中
+      {% else %}工程已放行{% endif %}
+      · 模型 {{ module.calculation_model_version }}
+    </span>
+  </header>
+
+  <main class="engineering-main">
+    <section class="engineering-hero">
+      <div>
+        <p class="engineering-kicker">{{ module.category }} / {{ module.module_id }}</p>
+        <h1>{{ module.module_name }}</h1>
+        <p>{{ module.summary }}</p>
+      </div>
+      <ul aria-label="模块能力">
+        {% for capability in module.capabilities %}
+        <li>{{ capability }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <aside class="engineering-boundary" aria-label="使用边界">
+      <strong>
+        受控工程工作表 ·
+        {% if module.release_status == "internal_testing" %}内部测试（internal_testing）
+        {% elif module.release_status == "engineering_review" %}工程审核中（engineering_review）
+        {% else %}工程已放行（released）{% endif %}
+      </strong>
+      <p>
+        本模块执行公开列出的确定性公式。标准系数、材料许用值和产品额定数据必须由使用者按项目来源填写；
+        未提供或来源待确认时，结果保持“待校核”，不得直接作为制造、采购、安全认证或工程签字依据。
+      </p>
+    </aside>
+
+    <div class="engineering-layout">
+      <section class="engineering-panel engineering-input-panel" aria-labelledby="input-title">
+        <header>
+          <div>
+            <p>01 / INPUT</p>
+            <h2 id="input-title">工况与候选参数</h2>
+          </div>
+          <span>显示单位输入 · 后端统一 SI</span>
+        </header>
+
+        <div id="schema-loading" class="engineering-placeholder" role="status">正在读取模块输入契约…</div>
+        <form id="engineering-form" hidden novalidate>
+          <div id="engineering-fields"></div>
+          <div id="engineering-form-errors" class="engineering-form-errors" role="alert" hidden></div>
+          <div class="engineering-form-actions">
+            <button id="engineering-calculate" class="button button--primary" type="submit">执行计算与校核</button>
+            <button id="engineering-load-sample" class="button button--secondary" type="button">加载验证算例</button>
+            <button id="engineering-clear" class="engineering-text-button" type="button">清空参数</button>
+          </div>
+          <p class="engineering-sample-note">
+            “验证算例”只用于演示字段和回归公式，不是推荐设计参数、标准默认值或产品数据。
+          </p>
+        </form>
+      </section>
+
+      <section
+        id="engineering-results"
+        class="engineering-panel engineering-result-panel"
+        data-state="idle"
+        aria-labelledby="result-title"
+        aria-live="polite"
+      >
+        <header>
+          <div>
+            <p>02 / RESULT</p>
+            <h2 id="result-title">计算结果与工程边界</h2>
+          </div>
+          <span id="engineering-result-status">等待计算</span>
+        </header>
+
+        <div id="engineering-empty" class="engineering-placeholder">
+          填写左侧参数后执行计算。结果会显示数值等级、公式编号、警告、来源和未完成专项校核。
+        </div>
+        <div id="engineering-loading" class="engineering-placeholder" hidden role="status">
+          正在执行确定性计算并保存同源快照…
+        </div>
+        <div id="engineering-result-content" hidden tabindex="-1">
+          <dl id="engineering-meta" class="engineering-meta"></dl>
+
+          <section>
+            <h3>工程警告</h3>
+            <div id="engineering-warnings"></div>
+          </section>
+
+          <section>
+            <h3>关键结果</h3>
+            <div class="engineering-table-wrap">
+              <table>
+                <thead><tr><th>结果字段</th><th>值</th><th>单位</th><th>等级</th><th>公式</th></tr></thead>
+                <tbody id="engineering-result-rows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section>
+            <h3>公式审计步骤</h3>
+            <ol id="engineering-steps" class="engineering-step-list"></ol>
+          </section>
+
+          <section>
+            <h3>参数来源与假设</h3>
+            <ul id="engineering-assumptions" class="engineering-audit-list"></ul>
+          </section>
+
+          <section>
+            <h3>未完成专项校核</h3>
+            <ul id="engineering-unchecked" class="engineering-audit-list"></ul>
+          </section>
+
+          <div class="engineering-result-actions">
+            <a id="engineering-html-report" class="button button--primary" href="#">查看完整报告</a>
+            <a id="engineering-pdf-report" class="button button--secondary" href="#">下载 PDF</a>
+            <button id="engineering-back-to-input" class="engineering-text-button" type="button">返回参数</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/engineering-calculator.js?v=20260725.1" defer></script>
+</body>
+</html>
