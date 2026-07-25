@@ -47,10 +47,33 @@ class PdfReportService:
         self._reports_root = settings.reports_dir.resolve()
         self._temporary_root = self._reports_root / ".tmp"
 
+    def validate_runtime(self) -> None:
+        """Fail startup when the persisted report runtime is unavailable."""
+
+        if not PDF_FONT_PATH.is_file():
+            raise RuntimeError("PDF 中文字体缺失")
+        try:
+            self._temporary_root.mkdir(parents=True, exist_ok=True)
+            probe_path = self._temporary_root / f".ready-{uuid4()}"
+            probe_path.write_bytes(b"ready")
+            probe_path.unlink()
+        except OSError as exc:
+            raise RuntimeError("报告目录不可写") from exc
+
+    def is_ready(self) -> bool:
+        return PDF_FONT_PATH.is_file() and self._reports_root.is_dir() and self._temporary_root.is_dir()
+
     def get_or_generate(self, snapshot: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
         cached = self._validated_cached_artifact(snapshot)
         if cached is not None:
             return cached
+        report_payload = snapshot.get("report_context")
+        if not isinstance(report_payload, dict) or int(report_payload.get("schema_version", 0)) < 4:
+            raise ReportServiceError(
+                status_code=409,
+                code="LEGACY_RELEASE_STATUS_MISSING",
+                message="旧快照未记录计算时的工程发布状态；请查看 HTML 报告并重新计算后生成新版 PDF",
+            )
         if not self._semaphore.acquire(blocking=False):
             raise ReportServiceError(
                 status_code=429,
@@ -100,23 +123,27 @@ class PdfReportService:
                 message="该旧快照没有可验证的持久化报告上下文",
             )
         report_context = ReportContext.model_validate(report_payload)
-        self._check_capacity()
-        self._temporary_root.mkdir(parents=True, exist_ok=True)
-        artifact_id = self._repository.begin_report_artifact(
-            artifact_id=str(uuid4()),
-            calculation_id=snapshot["calculation_id"],
-            template_version=snapshot["report_template_version"],
-            created_at=_utc_now(),
-        )
-        relative_path = Path("artifacts") / f"{artifact_id}.pdf"
-        final_path = (self._reports_root / relative_path).resolve()
-        if not final_path.is_relative_to(self._reports_root):
-            raise AssertionError("内部报告路径越界")
-        context_path = self._temporary_root / f"{artifact_id}.json"
-        output_path = self._temporary_root / f"{artifact_id}.pdf"
+        artifact_id: str | None = None
+        final_path: Path | None = None
+        context_path: Path | None = None
+        output_path: Path | None = None
         moved_to_final = False
         error_code = "PDF_GENERATION_FAILED"
         try:
+            self._check_capacity()
+            self._temporary_root.mkdir(parents=True, exist_ok=True)
+            artifact_id = self._repository.begin_report_artifact(
+                artifact_id=str(uuid4()),
+                calculation_id=snapshot["calculation_id"],
+                template_version=snapshot["report_template_version"],
+                created_at=_utc_now(),
+            )
+            relative_path = Path("artifacts") / f"{artifact_id}.pdf"
+            final_path = (self._reports_root / relative_path).resolve()
+            if not final_path.is_relative_to(self._reports_root):
+                raise AssertionError("内部报告路径越界")
+            context_path = self._temporary_root / f"{artifact_id}.json"
+            output_path = self._temporary_root / f"{artifact_id}.pdf"
             context_path.write_text(
                 json.dumps(
                     report_context.model_dump(mode="json"),
@@ -169,21 +196,24 @@ class PdfReportService:
         except ReportServiceError:
             raise
         except Exception as exc:
-            if moved_to_final:
+            if moved_to_final and final_path is not None:
                 final_path.unlink(missing_ok=True)
-            self._repository.mark_report_failed(
-                artifact_id=artifact_id,
-                error_code=error_code,
-                completed_at=_utc_now(),
-            )
+            if artifact_id is not None:
+                self._repository.mark_report_failed(
+                    artifact_id=artifact_id,
+                    error_code=error_code,
+                    completed_at=_utc_now(),
+                )
             raise ReportServiceError(
                 status_code=503,
                 code=error_code,
                 message="PDF 生成失败，计算快照仍已保留",
             ) from exc
         finally:
-            context_path.unlink(missing_ok=True)
-            output_path.unlink(missing_ok=True)
+            if context_path is not None:
+                context_path.unlink(missing_ok=True)
+            if output_path is not None:
+                output_path.unlink(missing_ok=True)
 
     def _run_worker(self, context_path: Path, output_path: Path) -> None:
         subprocess.run(

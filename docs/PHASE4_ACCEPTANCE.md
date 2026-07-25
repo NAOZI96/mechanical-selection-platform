@@ -26,7 +26,7 @@
 
 ## 3. 迁移与功能冒烟
 
-- `001_initial.sql`～`004_report_context.sql` 全部应用，独立 `--check` 返回 `DATABASE_MIGRATIONS=READY`。
+- 当次镜像所含的 `001_initial.sql`～`004_report_context.sql` 全部应用，独立 `--check` 返回 `DATABASE_MIGRATIONS=READY`。这是 2026-07-23 的历史证据，不包含后续 `005_calculation_release_status.sql`。
 - `/health/ready` 返回 `{"status":"ready"}`，容器健康状态 healthy、重启 0、OOM false。
 - 金样设计拉力为 120000 N；HTML 与 API 模型版本/关键值一致。
 - PDF 为 9 页、93,814 B，文件魔数、响应 SHA-256 与下载文件一致；二次请求返回相同二进制。
@@ -65,3 +65,5 @@
 - 软件验收为 `pass`；总状态仍为 `internal_testing`。
 - 转为 `released` 仍需关闭钢丝绳、卷筒结构、动态/热制动、电机启动/热容量、正式标准条款与制造商数据等专项校核。
 - 如需公网访问，必须另行提供并批准域名、TLS、代理路径和访问控制策略。
+
+当前九模块候选版新增迁移 `005`、snapshot/report context schema v4、报告模板 patch 版本与旧 PDF 兼容策略；这些内容必须在新一轮目标机备份、迁移、冒烟、资源和恢复复验中单独取证，不能引用本文替代。

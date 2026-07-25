@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.reporting.models import ReportContext
 
+from .expanded_registry import EXPANDED_MODULE_SPECS
 from .winch_drum.assumptions import (
     CALCULATION_MODEL_VERSION,
     MODULE_ID,
@@ -39,6 +41,12 @@ class ModuleDefinition:
     capabilities: tuple[str, ...] = ()
     catalog_order: int = 100
     featured: bool = False
+    release_status: Literal["internal_testing", "engineering_review", "released"] = "internal_testing"
+    input_labels: tuple[tuple[str, str], ...] = ()
+    result_labels: tuple[tuple[str, str], ...] = ()
+    unchecked_labels: tuple[tuple[str, str], ...] = ()
+    assumption_labels: tuple[tuple[str, str], ...] = ()
+    example_input: tuple[tuple[str, object], ...] = ()
 
 
 class ModuleRegistry:
@@ -56,6 +64,22 @@ class ModuleRegistry:
             raise ValueError("模块版本、计算模型版本和报告模板版本不能为空")
         if not issubclass(module.input_model, BaseModel) or not issubclass(module.result_model, BaseModel):
             raise TypeError("模块输入和结果必须是 Pydantic BaseModel")
+        required_result_fields = {
+            "module_id",
+            "module_version",
+            "calculation_model_version",
+            "status",
+            "input_si",
+            "unchecked_items",
+            "assumptions",
+            "calculation_steps",
+            "warnings",
+            "disclaimer",
+        }
+        missing_result_fields = required_result_fields.difference(module.result_model.model_fields)
+        if missing_result_fields:
+            missing = "、".join(sorted(missing_result_fields))
+            raise ValueError(f"模块结果缺少公共快照字段: {missing}")
         if not callable(module.calculate):
             raise TypeError("模块 calculate 必须可调用")
         if not callable(module.build_report_context):
@@ -72,6 +96,12 @@ class ModuleRegistry:
                 raise ValueError("模块页面模板必须是 templates 目录内的 HTML 相对路径")
         if module.catalog_order < 0:
             raise ValueError("模块目录顺序不能为负数")
+        if module.release_status not in {"internal_testing", "engineering_review", "released"}:
+            raise ValueError("模块发布状态无效")
+        unknown_example_fields = {key for key, _ in module.example_input}.difference(module.input_model.model_fields)
+        if unknown_example_fields:
+            unknown = "、".join(sorted(unknown_example_fields))
+            raise ValueError(f"模块验证算例包含未知输入字段: {unknown}")
         self._modules[module.module_id] = module
 
     def get(self, module_id: str) -> ModuleDefinition:
@@ -136,5 +166,33 @@ register_module(
         capabilities=("逐层离散容绳", "电机功率初选", "静态制动参考", "HTML / PDF 报告"),
         catalog_order=10,
         featured=True,
+        release_status="engineering_review",
     )
 )
+
+for expanded_spec in EXPANDED_MODULE_SPECS:
+    register_module(
+        ModuleDefinition(
+            module_id=expanded_spec.module_id,
+            module_name=expanded_spec.module_name,
+            module_version=expanded_spec.module_version,
+            calculation_model_version=expanded_spec.calculation_model_version,
+            report_template_version=expanded_spec.report_template_version,
+            input_model=expanded_spec.input_model,
+            result_model=expanded_spec.result_model,
+            calculate=expanded_spec.calculate,
+            build_report_context=expanded_spec.build_report_context,
+            summary=expanded_spec.summary,
+            category=expanded_spec.category,
+            web_template="engineering_calculator.html",
+            icon_key=expanded_spec.icon_key,
+            capabilities=expanded_spec.capabilities,
+            catalog_order=expanded_spec.catalog_order,
+            release_status="internal_testing",
+            input_labels=expanded_spec.input_labels,
+            result_labels=expanded_spec.result_labels,
+            unchecked_labels=expanded_spec.unchecked_labels,
+            assumption_labels=expanded_spec.assumption_labels,
+            example_input=expanded_spec.example_input,
+        )
+    )

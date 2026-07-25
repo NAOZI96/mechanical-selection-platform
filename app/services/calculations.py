@@ -46,6 +46,7 @@ class CalculationService:
             "module_version": module.module_version,
             "calculation_model_version": module.calculation_model_version,
             "report_template_version": module.report_template_version,
+            "release_status": module.release_status,
             "status": status,
             "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "input_original": input_original,
@@ -55,7 +56,7 @@ class CalculationService:
             "steps": steps,
             "warnings": warnings,
             "disclaimer": disclaimer,
-            "snapshot_schema_version": 3,
+            "snapshot_schema_version": 4,
             "links": {
                 "self": f"/api/v1/calculations/{calculation_id}",
                 "html_report": f"/calculations/{calculation_id}/report",

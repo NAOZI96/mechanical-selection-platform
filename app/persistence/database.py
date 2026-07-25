@@ -42,7 +42,7 @@ def initialize_database(database_path: Path) -> None:
             )
 
 
-def database_is_ready(database_path: Path) -> bool:
+def database_is_ready(database_path: Path, *, verify_integrity: bool = True) -> bool:
     if not database_path.is_file():
         return False
     try:
@@ -54,7 +54,11 @@ def database_is_ready(database_path: Path) -> bool:
                 return False
             applied = {row["version"] for row in connection.execute("SELECT version FROM schema_migrations")}
             expected = {path.name for path in MIGRATIONS_DIR.glob("*.sql")}
-            return applied == expected and connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            if applied != expected:
+                return False
+            if not verify_integrity:
+                return connection.execute("SELECT 1").fetchone()[0] == 1
+            return connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     except (OSError, sqlite3.Error):
         return False
 

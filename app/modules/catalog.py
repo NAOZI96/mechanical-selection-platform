@@ -25,6 +25,8 @@ class ModuleCatalogItem:
     calculation_model_version: str | None
     catalog_order: int
     featured: bool = False
+    engineering_release_status: str | None = None
+    engineering_release_label: str | None = None
 
 
 PLANNED_MODULES: tuple[ModuleCatalogItem, ...] = (
@@ -162,6 +164,12 @@ def build_module_catalog(registry: ModuleRegistry) -> tuple[ModuleCatalogItem, .
             calculation_model_version=module.calculation_model_version,
             catalog_order=module.catalog_order,
             featured=module.featured,
+            engineering_release_status=module.release_status,
+            engineering_release_label={
+                "internal_testing": "内部测试",
+                "engineering_review": "工程审核中",
+                "released": "工程已放行",
+            }[module.release_status],
         )
 
     catalog = list(registered.values())

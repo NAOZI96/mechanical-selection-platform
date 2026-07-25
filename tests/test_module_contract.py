@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -27,11 +28,18 @@ class DummyResult(BaseModel):
     calculation_model_version: str = "dummy.calc.1.0.0"
     status: str = "completed"
     input_si: dict[str, int]
+    unchecked_items: tuple[str, ...] = ()
     assumptions: list[object] = []
     calculation_steps: list[object] = []
     warnings: list[object] = []
     disclaimer: str = "仅用于模块契约测试。"
     doubled_value: int
+
+
+class IncompleteDummyResult(BaseModel):
+    module_id: str
+    module_version: str
+    calculation_model_version: str
 
 
 def calculate_dummy(data: BaseModel) -> BaseModel:
@@ -123,7 +131,6 @@ class ModuleContractTests(unittest.TestCase):
         self.assertIn(">14<", report.text)
 
     def test_registry_rejects_duplicate_and_incomplete_modules(self) -> None:
-        registry = ModuleRegistry()
         definition = ModuleDefinition(
             module_id="dummy_module",
             module_name="测试模块",
@@ -135,9 +142,23 @@ class ModuleContractTests(unittest.TestCase):
             calculate=calculate_dummy,
             build_report_context=build_dummy_report_context,
         )
+        registry = ModuleRegistry()
         registry.register(definition)
         with self.assertRaises(ValueError):
             registry.register(definition)
+
+        invalid_definitions = (
+            replace(definition, module_id="Bad-Id"),
+            replace(definition, module_version=""),
+            replace(definition, result_model=IncompleteDummyResult),
+            replace(definition, web_template="../outside.html"),
+            replace(definition, catalog_order=-1),
+            replace(definition, release_status="invalid"),  # type: ignore[arg-type]
+            replace(definition, example_input=(("unknown_field", 1),)),
+        )
+        for invalid_definition in invalid_definitions:
+            with self.subTest(module_id=invalid_definition.module_id), self.assertRaises((TypeError, ValueError)):
+                ModuleRegistry().register(invalid_definition)
 
 
 if __name__ == "__main__":

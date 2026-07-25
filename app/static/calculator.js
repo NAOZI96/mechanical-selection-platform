@@ -8,6 +8,7 @@ const loadingState = document.querySelector("#loading-state");
 const resultContent = document.querySelector("#result-content");
 const resultPanel = document.querySelector("#results");
 const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let resultState = "idle";
 
 const numericFields = [
@@ -82,7 +83,7 @@ function clearCalculatorSession() {
 document.querySelector("#clear-calculator").addEventListener("click", clearCalculatorSession);
 document.querySelector("#load-golden-sample").addEventListener("click", loadGoldenSample);
 document.querySelector("#back-to-input").addEventListener("click", () => {
-  form.scrollIntoView({behavior: "smooth", block: "start"});
+  form.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   form.querySelector("input, select")?.focus({preventScroll: true});
 });
 form.addEventListener("input", () => saveSessionState());
@@ -232,6 +233,7 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   meta.replaceChildren(
     metaItem("计算状态", statusLabel(snapshot.status), snapshot.status.includes("warnings") ? "amber" : "green"),
     metaItem("容量判定", snapshot.results.capacity_satisfied ? "满足" : "不满足", snapshot.results.capacity_satisfied ? "green" : "red"),
+    metaItem("计算时工程状态", releaseStatusLabel(snapshot.release_status), "amber"),
     metaItem("模型版本", snapshot.calculation_model_version, "blue"),
     metaItem("计算 ID", snapshot.calculation_id, "neutral"),
   );
@@ -244,7 +246,7 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   renderAssumptions(snapshot.assumptions || []);
   if (focus) {
     resultContent.focus({preventScroll: true});
-    resultContent.scrollIntoView({behavior: "smooth", block: "start"});
+    resultContent.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   }
 }
 
@@ -321,8 +323,9 @@ function renderChecks(snapshot) {
   body.replaceChildren();
   rows.forEach((item) => {
     const row = document.createElement("tr");
-    [item.name, item.calculated, item.requirement].forEach((value) => {
-      const cell = document.createElement("td");
+    [item.name, item.calculated, item.requirement].forEach((value, index) => {
+      const cell = document.createElement(index === 0 ? "th" : "td");
+      if (index === 0) cell.scope = "row";
       cell.textContent = value;
       row.append(cell);
     });
@@ -386,8 +389,9 @@ function renderLayers(layers) {
     const row = document.createElement("tr");
     [layer.layer_number, layer.center_diameter_m, layer.turn_length_m, layer.full_turns,
       layer.used_turns, layer.used_capacity_m, layer.cumulative_used_capacity_m]
-      .forEach((value) => {
-        const cell = document.createElement("td");
+      .forEach((value, index) => {
+        const cell = document.createElement(index === 0 ? "th" : "td");
+        if (index === 0) cell.scope = "row";
         cell.textContent = typeof value === "number" ? formatNumber(value, 4) : String(value ?? "—");
         row.append(cell);
       });
@@ -446,7 +450,7 @@ function showError(message, details) {
     formErrors.append(list);
   }
   formErrors.hidden = false;
-  formErrors.scrollIntoView({behavior: "smooth", block: "center"});
+  formErrors.scrollIntoView({behavior: scrollBehavior(), block: "center"});
 }
 
 function clearFieldErrors() {
@@ -482,6 +486,15 @@ function formatNumber(value, digits = 3) {
   return new Intl.NumberFormat("zh-CN", {maximumFractionDigits: digits}).format(value);
 }
 function statusLabel(status) { return status === "completed" ? "计算完成" : "完成，存在警告"; }
+function releaseStatusLabel(value) {
+  return ({
+    internal_testing: "内部测试",
+    engineering_review: "工程审核中",
+    released: "工程已放行",
+    legacy_unknown: "未记录",
+  })[value] || "未记录";
+}
+function scrollBehavior() { return reduceMotion.matches ? "auto" : "smooth"; }
 function severityLabel(value) { return ({blocking: "阻断", high: "高", warning: "警告", info: "提示"})[value] || value; }
 function checkTone(value) {
   return ({"满足": "calculated", "初选满足": "preliminary", "不满足": "blocking", "待校核": "review_required"})[value] || "informational";

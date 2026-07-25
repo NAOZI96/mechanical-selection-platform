@@ -140,9 +140,23 @@ class WinchCalculatorTests(unittest.TestCase):
             {warning.code for warning in result.warnings},
         )
 
-    def test_registry_exposes_only_winch_drum(self) -> None:
+    def test_registry_exposes_nine_modules_and_preserves_winch_contract(self) -> None:
         modules = list_modules()
-        self.assertEqual(tuple(module.module_id for module in modules), ("winch_drum",))
+        self.assertEqual(len(modules), 9)
+        self.assertEqual(
+            {module.module_id for module in modules},
+            {
+                "winch_drum",
+                "transmission_check",
+                "gear_drive",
+                "shaft_bearing",
+                "lead_screw",
+                "synchronous_belt",
+                "motor_drive",
+                "stepper_motor",
+                "pneumatic_cylinder",
+            },
+        )
         module = get_module("winch_drum")
         self.assertIs(module.input_model, WinchDrumInput)
         self.assertEqual(module.calculation_model_version, "winch_drum.calc.1.2.0")
