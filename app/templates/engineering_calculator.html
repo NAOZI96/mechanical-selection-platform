@@ -2,13 +2,15 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="{{ module.module_name }}：确定性 SI 工程初算、候选校核、公式审计与同源报告。">
+  <meta name="theme-color" content="#102a43">
   {% if module.release_status != "released" %}<meta name="robots" content="noindex,nofollow">{% endif %}
+  {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/{{ module.module_id }}">{% endif %}
   <title>{{ module.module_name }}｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260724.4">
-  <link rel="stylesheet" href="/static/engineering.css?v=20260724.2">
+  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
+  <link rel="stylesheet" href="/static/engineering.css?v=20260725.1">
 </head>
 <body
   class="engineering-page"
@@ -17,6 +19,7 @@
   data-module-name="{{ module.module_name }}"
   data-release-status="{{ module.release_status }}"
 >
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <header class="site-header engineering-header">
     <a class="brand" href="/" aria-label="机械智选首页">
       <span class="brand-mark">M</span>
@@ -34,7 +37,7 @@
     </span>
   </header>
 
-  <main class="engineering-main">
+  <main id="main-content" class="engineering-main">
     <section class="engineering-hero">
       <div>
         <p class="engineering-kicker">{{ module.category }} / {{ module.module_id }}</p>
@@ -71,6 +74,12 @@
           <span>显示单位输入 · 后端统一 SI</span>
         </header>
 
+        <noscript>
+          <div class="engineering-noscript" role="alert">
+            <strong>此工作台需要 JavaScript 生成严格输入表单。</strong>
+            <span>请启用 JavaScript 后重新加载；也可在 <a href="/docs">API 文档</a> 中读取模块 schema 并调用计算接口。</span>
+          </div>
+        </noscript>
         <div id="schema-loading" class="engineering-placeholder" role="status">正在读取模块输入契约…</div>
         <form id="engineering-form" hidden novalidate>
           <div id="engineering-fields"></div>
@@ -116,10 +125,11 @@
           </section>
 
           <section>
-            <h3>关键结果</h3>
+            <h3 id="engineering-results-title">关键结果</h3>
             <div class="engineering-table-wrap">
-              <table>
-                <thead><tr><th>结果字段</th><th>值</th><th>单位</th><th>等级</th><th>公式</th></tr></thead>
+              <table aria-labelledby="engineering-results-title">
+                <caption class="sr-only">本次计算的关键结果、等级和公式编号</caption>
+                <thead><tr><th scope="col">结果字段</th><th scope="col">值</th><th scope="col">单位</th><th scope="col">等级</th><th scope="col">公式</th></tr></thead>
                 <tbody id="engineering-result-rows"></tbody>
               </table>
             </div>
@@ -150,6 +160,14 @@
     </div>
   </main>
 
-  <script src="/static/engineering-calculator.js?v=20260725.1" defer></script>
+  <footer class="engineering-footer">
+    <div>
+      <a href="/">机械智选</a>
+      <span>Platform v{{ platform_version }} · {{ module.release_status }}</span>
+    </div>
+    <p>计算结果不替代适用标准、专项校核、制造商确认或工程审批。</p>
+  </footer>
+
+  <script src="/static/engineering-calculator.js?v=20260725.2" defer></script>
 </body>
 </html>

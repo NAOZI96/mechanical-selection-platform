@@ -26,7 +26,7 @@ MODULE_ID = "transmission_check"
 MODULE_NAME = "机械传动快速校核"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "transmission_check.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "transmission_check.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "transmission_check.report.1.0.1"
 
 DISCLAIMER = (
     "本结果仅按用户给定的稳态输入转矩、转速、各级传动比与正向效率进行确定性传递计算。"

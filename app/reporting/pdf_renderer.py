@@ -278,8 +278,14 @@ def _styles() -> dict[str, ParagraphStyle]:
 def _metadata_table(report: ReportContext, styles: dict[str, ParagraphStyle]) -> Table:
     data = [
         ["计算 ID", report.calculation_id, "状态", report.status_label or report.status],
-        ["模块 / 版本", f"{report.module_id} / {report.module_version}", "计算时间 UTC", report.calculation_created_at],
-        ["计算模型", report.calculation_model_version, "报告模板", report.report_template_version],
+        [
+            "工程发布状态",
+            f"{report.release_status_label} ({report.release_status})",
+            "计算时间 UTC",
+            report.calculation_created_at,
+        ],
+        ["模块 / 版本", f"{report.module_id} / {report.module_version}", "计算模型", report.calculation_model_version],
+        ["报告模板", report.report_template_version, "报告上下文", f"schema {report.schema_version}"],
     ]
     rows = [[Paragraph(_safe(value), styles["small"]) for value in row] for row in data]
     return Table(
@@ -454,7 +460,11 @@ def _page_footer(canvas: Any, document: Any, report: ReportContext) -> None:
     canvas.saveState()
     canvas.setFont(FONT_NAME, 6.5)
     canvas.setFillColor(colors.HexColor("#64748b"))
-    canvas.drawString(15 * mm, 9 * mm, f"{report.calculation_id} · {report.calculation_model_version}")
+    canvas.drawString(
+        15 * mm,
+        9 * mm,
+        f"{report.calculation_id} · {report.release_status_label} · {report.calculation_model_version}",
+    )
     canvas.drawRightString(195 * mm, 9 * mm, f"第 {document.page} 页")
     canvas.restoreState()
 

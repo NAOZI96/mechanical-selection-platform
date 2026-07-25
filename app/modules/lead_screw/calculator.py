@@ -22,7 +22,7 @@ MODULE_ID = "lead_screw"
 MODULE_NAME = "丝杆传动选型"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "lead_screw.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "lead_screw.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "lead_screw.report.1.0.1"
 
 DISCLAIMER = (
     "本结果采用等效方牙滑动丝杠、恒定螺纹摩擦和轴心静载模型；提升/下降转矩不含止推轴承或端面摩擦。"

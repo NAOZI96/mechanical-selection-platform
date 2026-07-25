@@ -13,6 +13,7 @@ const loadingState = document.querySelector("#engineering-loading");
 const resultContent = document.querySelector("#engineering-result-content");
 const resultStatus = document.querySelector("#engineering-result-status");
 const sessionKey = `engineering.${moduleId}.session.v1`;
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let inputSchema = null;
 let requiredFields = new Set();
@@ -50,9 +51,7 @@ async function initialize() {
     return;
   }
   try {
-    const response = await fetch(`/api/v1/modules/${encodeURIComponent(moduleId)}/schema`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error?.message || "输入契约读取失败");
+    const data = await fetchJson(`/api/v1/modules/${encodeURIComponent(moduleId)}/schema`, {}, 12000);
     inputSchema = data.input_schema;
     resultLabels = data.result_labels || {};
     uncheckedLabels = data.unchecked_labels || {};
@@ -129,6 +128,8 @@ function createField(name, sourceSchema, normalized) {
   error.className = "engineering-field-error";
   error.id = `error-${name}`;
   error.hidden = true;
+  control.setAttribute("aria-errormessage", error.id);
+  control.setAttribute("aria-describedby", `${help.id} ${error.id}`);
   wrapper.append(label, control, help, error);
   return wrapper;
 }
@@ -166,7 +167,14 @@ function createControl(name, schema) {
       control.step = schema.type === "integer" ? "1" : "any";
       if (schema.minimum !== undefined) control.min = String(schema.minimum);
       if (schema.maximum !== undefined) control.max = String(schema.maximum);
+      if (schema.exclusiveMinimum !== undefined) {
+        control.dataset.exclusiveMinimum = String(schema.exclusiveMinimum);
+      }
+      if (schema.exclusiveMaximum !== undefined) {
+        control.dataset.exclusiveMaximum = String(schema.exclusiveMaximum);
+      }
     }
+    if (schema.minLength !== undefined) control.minLength = schema.minLength;
     if (schema.maxLength !== undefined) control.maxLength = schema.maxLength;
   }
   control.id = `field-${name}`;
@@ -180,6 +188,7 @@ function createControl(name, schema) {
 form?.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearErrors();
+  validateClientConstraints();
   if (!form.checkValidity()) {
     form.reportValidity();
     showFormError("请完成所有必填字段，并检查浏览器标出的数值范围。");
@@ -190,21 +199,21 @@ form?.addEventListener("submit", async (event) => {
   document.querySelector("#engineering-calculate").disabled = true;
   try {
     const input = readInput();
-    const response = await fetch(`/api/v1/modules/${encodeURIComponent(moduleId)}/calculations`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({input}),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      showApiErrors(data?.error);
-      setResultState(previousState);
-      return;
-    }
+    const data = await fetchJson(
+      `/api/v1/modules/${encodeURIComponent(moduleId)}/calculations`,
+      {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({input}),
+      },
+      20000,
+    );
     renderSnapshot(data);
     saveSessionState(input, data);
   } catch (error) {
-    showFormError(error instanceof Error ? error.message : "无法连接计算服务。");
+    if (!error?.details) {
+      showFormError(error instanceof Error ? error.message : "无法连接计算服务。");
+    }
     setResultState(previousState);
   } finally {
     document.querySelector("#engineering-calculate").disabled = false;
@@ -235,11 +244,12 @@ document.querySelector("#engineering-clear")?.addEventListener("click", () => {
 });
 
 document.querySelector("#engineering-back-to-input")?.addEventListener("click", () => {
-  form.scrollIntoView({behavior: "smooth", block: "start"});
+  form.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   form.querySelector("input, select, textarea")?.focus({preventScroll: true});
 });
 
 form?.addEventListener("input", () => {
+  validateClientConstraints();
   try {
     saveSessionState(readInput(), readSessionState()?.snapshot || null);
   } catch {
@@ -289,6 +299,7 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   meta.replaceChildren(
     metaItem("模块", moduleName),
     metaItem("状态", statusLabels[snapshot.status] || snapshot.status),
+    metaItem("计算时工程状态", releaseStatusLabel(snapshot.release_status)),
     metaItem("模型版本", snapshot.calculation_model_version),
     metaItem("计算 ID", snapshot.calculation_id),
   );
@@ -301,7 +312,7 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   document.querySelector("#engineering-pdf-report").href = snapshot.links.pdf;
   if (focus) {
     resultContent.focus({preventScroll: true});
-    resultContent.scrollIntoView({behavior: "smooth", block: "start"});
+    resultContent.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   }
 }
 
@@ -336,8 +347,9 @@ function renderResults(results) {
     .forEach(([key, item]) => {
       const row = document.createElement("tr");
       [resultLabels[key] || key, formatValue(item.value), item.unit || "", classificationLabels[item.classification] || item.classification,
-        (item.formula_ids || []).join("、")].forEach((value) => {
-        const cell = document.createElement("td");
+        (item.formula_ids || []).join("、")].forEach((value, index) => {
+        const cell = document.createElement(index === 0 ? "th" : "td");
+        if (index === 0) cell.scope = "row";
         cell.textContent = value;
         row.append(cell);
       });
@@ -427,6 +439,7 @@ function clearErrors() {
   formErrors.hidden = true;
   formErrors.replaceChildren();
   form.querySelectorAll("[aria-invalid='true']").forEach((control) => control.removeAttribute("aria-invalid"));
+  form.querySelectorAll("[name]").forEach((control) => control.setCustomValidity(""));
   form.querySelectorAll(".engineering-field-error").forEach((error) => {
     error.hidden = true;
     error.textContent = "";
@@ -435,27 +448,115 @@ function clearErrors() {
 
 function showApiErrors(error) {
   const details = error?.details || [];
-  showFormError(error?.message || "输入未通过校验。");
+  showFormError(error?.message || "输入未通过校验。", details);
+  let firstInvalidControl = null;
   details.forEach((detail) => {
-    const fieldName = String(detail.field || "").split(".").at(-1);
+    const fieldParts = String(detail.field || "").split(".").filter(Boolean);
+    const fieldName = fieldParts[0] === "input" ? fieldParts[1] : fieldParts[0];
+    if (!fieldName) return;
     const control = form.elements[fieldName];
     const fieldError = document.querySelector(`#error-${CSS.escape(fieldName)}`);
-    if (control) control.setAttribute("aria-invalid", "true");
+    if (control) {
+      control.setAttribute("aria-invalid", "true");
+      if (!firstInvalidControl) firstInvalidControl = control;
+    }
     if (fieldError) {
-      fieldError.textContent = detail.message || "输入无效";
+      const suffix = fieldParts.slice(fieldParts[0] === "input" ? 2 : 1).join(".");
+      fieldError.textContent = `${suffix ? `${suffix}：` : ""}${detail.message || "输入无效"}`;
       fieldError.hidden = false;
+    }
+  });
+  firstInvalidControl?.focus();
+}
+
+function showFormError(message, details = []) {
+  formErrors.replaceChildren();
+  const summary = document.createElement("strong");
+  summary.textContent = message;
+  formErrors.append(summary);
+  if (details.length) {
+    const list = document.createElement("ul");
+    details.forEach((detail) => {
+      const item = document.createElement("li");
+      item.textContent = `${detail.field || "输入"}：${detail.message || "输入无效"}`;
+      list.append(item);
+    });
+    formErrors.append(list);
+  }
+  formErrors.tabIndex = -1;
+  formErrors.hidden = false;
+  if (!details.length) formErrors.focus();
+}
+
+function showFatal(message) {
+  schemaLoading.replaceChildren();
+  const text = document.createElement("p");
+  text.textContent = message;
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "button button--secondary";
+  retry.textContent = "重新加载";
+  retry.addEventListener("click", () => window.location.reload());
+  schemaLoading.append(text, retry);
+  schemaLoading.classList.add("engineering-placeholder--error");
+}
+
+function validateClientConstraints() {
+  form.querySelectorAll("[name]").forEach((control) => {
+    control.setCustomValidity("");
+    if (control.type !== "number" || control.value === "") return;
+    const value = Number(control.value);
+    const exclusiveMinimum = Number(control.dataset.exclusiveMinimum);
+    const exclusiveMaximum = Number(control.dataset.exclusiveMaximum);
+    if (control.dataset.exclusiveMinimum !== undefined && value <= exclusiveMinimum) {
+      control.setCustomValidity(`必须大于 ${exclusiveMinimum}`);
+    } else if (control.dataset.exclusiveMaximum !== undefined && value >= exclusiveMaximum) {
+      control.setCustomValidity(`必须小于 ${exclusiveMaximum}`);
     }
   });
 }
 
-function showFormError(message) {
-  formErrors.textContent = message;
-  formErrors.hidden = false;
+function releaseStatusLabel(value) {
+  return {
+    internal_testing: "内部测试（internal_testing）",
+    engineering_review: "工程审核中（engineering_review）",
+    released: "工程已放行（released）",
+    legacy_unknown: "未记录（按内部测试边界处理）",
+  }[value] || String(value || "未记录");
 }
 
-function showFatal(message) {
-  schemaLoading.textContent = message;
-  schemaLoading.classList.add("engineering-placeholder--error");
+function scrollBehavior() {
+  return reduceMotion.matches ? "auto" : "smooth";
+}
+
+async function fetchJson(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {...options, signal: controller.signal});
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("服务返回了无法识别的响应，请稍后重试。");
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 422) {
+        const validationError = new Error(data?.error?.message || "输入未通过校验。");
+        validationError.details = data?.error;
+        throw validationError;
+      }
+      throw new Error(data?.error?.message || `请求失败（${response.status}）`);
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
+    if (error?.details) {
+      showApiErrors(error.details);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function formatValue(value) {

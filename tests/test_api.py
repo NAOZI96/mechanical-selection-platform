@@ -91,26 +91,25 @@ class ApiTests(unittest.TestCase):
     def test_platform_homepage_exposes_nine_registered_modules_with_release_boundaries(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("机械设备计算与选型平台", response.text)
+        self.assertIn("机械智选｜可追溯的机械计算与选型平台", response.text)
         self.assertIn("Mechanical Selection Platform", response.text)
-        self.assertIn("全部功能模块", response.text)
+        self.assertIn("把机械选型，做成", response.text)
+        self.assertIn("可计算、可追溯", response.text)
+        self.assertIn("九个工作台，一处进入", response.text)
         self.assertIn("绞车与卷筒选型助手", response.text)
-        self.assertGreaterEqual(response.text.count('href="/modules/winch_drum"'), 3)
-        self.assertIn("data-module-carousel", response.text)
-        self.assertIn("data-carousel-previous", response.text)
-        self.assertIn("data-carousel-next", response.text)
-        self.assertIn("从工程问题到可追溯方案", response.text)
-        self.assertIn("让计算透明，让结论有边界", response.text)
+        self.assertGreaterEqual(response.text.count('href="/modules/winch_drum"'), 2)
+        self.assertIn("data-module-finder", response.text)
+        self.assertIn("data-module-search", response.text)
+        self.assertIn('data-module-filter="all"', response.text)
+        self.assertIn("data-module-count", response.text)
+        self.assertIn("软件可上线，工程结论仍按门禁管理", response.text)
+        self.assertIn("9 个计算模块已接入", response.text)
         self.assertNotIn("查看验证算例", response.text)
         self.assertNotIn("console-readout", response.text)
         self.assertNotIn("console-note", response.text)
-        self.assertIn("data-home-animation", response.text)
-        self.assertIn('data-scroll-stage="modules"', response.text)
-        self.assertIn('data-scroll-stage="platform"', response.text)
-        self.assertIn('data-scroll-stage="extension"', response.text)
-        self.assertIn('src="/static/vendor/animejs/anime.umd.min.js"', response.text)
-        self.assertIn('src="/static/home-animation.js?v=20260724.3"', response.text)
-        self.assertIn("9 个已接入 · 0 个规划中", response.text)
+        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
+        self.assertIn('src="/static/home-animation.js?v=20260725.1"', response.text)
+        self.assertNotIn("/static/vendor/animejs/", response.text)
         self.assertIn("工程审核中", response.text)
         self.assertGreaterEqual(response.text.count("内部测试"), 8)
         for module_id, module_name in (
@@ -130,22 +129,14 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn("规划中 · 待开放", response.text)
 
         animation_script = self.client.get("/static/home-animation.js")
-        anime_bundle = self.client.get("/static/vendor/animejs/anime.umd.min.js")
         self.assertEqual(animation_script.status_code, 200)
-        self.assertEqual(anime_bundle.status_code, 200)
-        self.assertIn("prefers-reduced-motion: reduce", animation_script.text)
-        self.assertIn("createDrawable", animation_script.text)
-        self.assertIn("setupScrollReveals", animation_script.text)
-        self.assertIn("setupModuleCarousel", animation_script.text)
-        self.assertIn("window.setInterval", animation_script.text)
-        self.assertIn("reduceMotion.matches", animation_script.text)
-        self.assertIn('trigger.dataset.scrollState = "visible"', animation_script.text)
-        self.assertIn(
-            'scrollDirection = currentScrollY < previousScrollY ? "up" : "down"',
-            animation_script.text,
-        )
-        self.assertIn('"return-pending"', animation_script.text)
-        self.assertIn("@version v4.5.0", anime_bundle.text)
+        self.assertIn('querySelector("[data-module-finder]")', animation_script.text)
+        self.assertIn('toLocaleLowerCase("zh-CN")', animation_script.text)
+        self.assertIn("card.hidden = !visible", animation_script.text)
+        self.assertIn('button.dataset.moduleFilter || "all"', animation_script.text)
+        self.assertNotIn("opacity", animation_script.text)
+        self.assertNotIn("setInterval", animation_script.text)
+        self.assertNotIn("anime(", animation_script.text)
 
     def test_head_seo_crawler_files_favicon_and_html_404(self) -> None:
         self.assertEqual(self.client.head("/").status_code, 200)
@@ -188,8 +179,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn('data-state="idle"', response.text)
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
-        self.assertIn('href="/static/app.css?v=20260724.4"', response.text)
-        self.assertIn('src="/static/calculator.js?v=20260724.2"', response.text)
+        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
+        self.assertIn('src="/static/calculator.js?v=20260725.1"', response.text)
         self.assertIn('href="/#modules">模块中心</a>', response.text)
         script = self.client.get("/static/calculator.js")
         stylesheet = self.client.get("/static/app.css")
@@ -281,8 +272,11 @@ class ApiTests(unittest.TestCase):
             "/api/v1/modules/winch_drum/calculations",
             json=payload,
         ).json()
-        self.assertEqual(created["report_template_version"], "winch_drum.report.1.2.0")
-        self.assertEqual(created["report_context"]["schema_version"], 3)
+        self.assertEqual(created["report_template_version"], "winch_drum.report.1.2.1")
+        self.assertEqual(created["release_status"], "engineering_review")
+        self.assertEqual(created["report_context"]["schema_version"], 4)
+        self.assertEqual(created["report_context"]["release_status"], "engineering_review")
+        self.assertEqual(created["report_context"]["release_status_label"], "工程审核中")
         for field, value in custom_records.items():
             self.assertEqual(created["input_original"][field], value)
 
@@ -295,6 +289,8 @@ class ApiTests(unittest.TestCase):
         for value in custom_records.values():
             self.assertIn(value, report.text)
         self.assertIn('class="formula-card"', report.text)
+        self.assertIn("工程审核中（engineering_review）", report.text)
+        self.assertIn("winch_drum.report.1.2.1", report.text)
         self.assertIn("代入值", report.text)
         self.assertIn("计算结果", report.text)
         self.assertIn("F_d = F_r × K_s", report.text)
@@ -333,7 +329,8 @@ class ApiTests(unittest.TestCase):
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         self.assertIn("绞车与卷筒选型助手计算报告", text)
         self.assertIn("winch_drum.calc.1.2.0", text)
-        self.assertIn("winch_drum.report.1.2.0", text)
+        self.assertIn("winch_drum.report.1.2.1", text)
+        self.assertIn("engineering_review", text)
         self.assertIn("120000", text)
         self.assertIn("理论计算值", text)
         self.assertIn("代入值", text)
@@ -343,6 +340,8 @@ class ApiTests(unittest.TestCase):
         second = self.client.get(created["links"]["pdf"])
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.content, first.content)
+        self.assertEqual(second.headers["x-engineering-release-status"], "engineering_review")
+        self.assertEqual(second.headers["x-legacy-release-status-missing"], "false")
         temporary_files = list((Path(self.temporary_directory.name) / "reports" / ".tmp").glob("*"))
         self.assertEqual(temporary_files, [])
 
@@ -366,6 +365,57 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
         self.assertEqual(response.headers["referrer-policy"], "no-referrer")
         self.assertIn("default-src 'self'", response.headers["content-security-policy"])
+
+    def test_unhandled_errors_use_branded_html_or_json_without_losing_security_headers(self) -> None:
+        root = Path(self.temporary_directory.name)
+        error_app = create_app(
+            Settings(
+                database_path=root / "error-handler.sqlite3",
+                reports_dir=root / "error-handler-reports",
+            )
+        )
+
+        @error_app.get("/__test__/unhandled", include_in_schema=False)
+        def raise_unhandled_error() -> None:
+            raise RuntimeError("test-only failure")
+
+        with TestClient(error_app, raise_server_exceptions=False) as error_client:
+            with self.assertLogs("app.main", level="ERROR") as captured_logs:
+                html = error_client.get("/__test__/unhandled", headers={"Accept": "text/html"})
+                self.assertEqual(html.status_code, 500)
+                self.assertIn("机械智选", html.text)
+                self.assertIn("服务处理请求时发生错误", html.text)
+                self.assertEqual(html.headers["x-content-type-options"], "nosniff")
+                self.assertEqual(html.headers["x-frame-options"], "DENY")
+                self.assertTrue(html.headers["x-request-id"])
+
+                json_response = error_client.get(
+                    "/__test__/unhandled",
+                    headers={"Accept": "application/json"},
+                )
+                self.assertEqual(json_response.status_code, 500)
+                self.assertEqual(
+                    json_response.json()["error"]["code"],
+                    "INTERNAL_SERVER_ERROR",
+                )
+                self.assertEqual(json_response.headers["cache-control"], "no-cache")
+            self.assertEqual(len(captured_logs.records), 2)
+
+    def test_api_docs_are_csp_safe_and_same_origin(self) -> None:
+        response = self.client.get("/docs")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.head("/docs").status_code, 200)
+        self.assertIn("API 文档｜机械智选", response.text)
+        self.assertIn("release_status", response.text)
+        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
+        self.assertNotIn("<script", response.text)
+        self.assertNotIn('style="', response.text)
+        self.assertNotIn("https://", response.text)
+        content_security_policy = response.headers["content-security-policy"]
+        self.assertIn("script-src 'self'", content_security_policy)
+        self.assertIn("style-src 'self'", content_security_policy)
+        self.assertNotIn("'unsafe-inline'", content_security_policy)
+        self.assertNotIn("'unsafe-eval'", content_security_policy)
 
     def test_request_body_limit_returns_controlled_error(self) -> None:
         database_path = Path(self.temporary_directory.name) / "limited.sqlite3"

@@ -4,7 +4,7 @@ MODULE_ID = "pneumatic_cylinder"
 MODULE_NAME = "气缸选型"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "pneumatic_cylinder.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "pneumatic_cylinder.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "pneumatic_cylinder.report.1.0.1"
 
 DISCLAIMER = (
     "本结果是双作用单杆气缸的理论力和理想等温耗气量初选，不构成气缸、阀岛或供气系统的采购放行依据。"

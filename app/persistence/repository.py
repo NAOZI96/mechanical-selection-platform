@@ -19,11 +19,11 @@ class CalculationRepository:
                 """
                 INSERT INTO calculations (
                     id, module_id, module_version, calculation_model_version,
-                    report_template_version, status,
+                    report_template_version, status, release_status,
                     input_original_json, input_si_json, assumptions_json, results_json,
                     steps_json, warnings_json, disclaimer_json, snapshot_schema_version,
                     report_context_json, input_hash, created_at, request_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot["calculation_id"],
@@ -32,6 +32,7 @@ class CalculationRepository:
                     snapshot["calculation_model_version"],
                     snapshot["report_template_version"],
                     snapshot["status"],
+                    snapshot["release_status"],
                     _json(snapshot["input_original"]),
                     _json(snapshot["input_si"]),
                     _json(snapshot["assumptions"]),
@@ -61,6 +62,7 @@ class CalculationRepository:
             "module_version": row["module_version"],
             "calculation_model_version": row["calculation_model_version"],
             "report_template_version": row["report_template_version"],
+            "release_status": row["release_status"] or "legacy_unknown",
             "status": row["status"],
             "created_at": row["created_at"],
             "input_original": json.loads(row["input_original_json"]),

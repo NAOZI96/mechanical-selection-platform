@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from html import escape
 from typing import Any
@@ -25,6 +26,8 @@ from app.reporting.models import ReportContext
 from app.reporting.service import PdfReportService, ReportServiceError
 from app.services.calculations import CalculationService
 
+LOGGER = logging.getLogger(__name__)
+
 
 def create_app(settings: Settings | None = None, registry: ModuleRegistry | None = None) -> FastAPI:
     app_settings = settings or Settings.from_environment()
@@ -36,9 +39,16 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             initialize_database(app_settings.database_path)
         elif not database_is_ready(app_settings.database_path):
             raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
+        report_service.validate_runtime()
         yield
 
-    app = FastAPI(title="机械智选 · Mechanical Selection Platform", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(
+        title="机械智选 · Mechanical Selection Platform",
+        version="0.5.0",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+    )
     app.state.settings = app_settings
     repository = CalculationRepository(app_settings.database_path)
     service = CalculationService(repository, active_registry.get)
@@ -74,15 +84,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 )
             else:
                 response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
-        )
-        return response
+        return _apply_response_controls(response, request, app_settings)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(request: Request, exc: RequestValidationError):
@@ -120,11 +122,83 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             request.state.request_id,
         )
 
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(request: Request, exc: Exception):
+        LOGGER.exception(
+            "Unhandled application error request_id=%s path=%s",
+            request.state.request_id,
+            request.url.path,
+            exc_info=exc,
+        )
+        message = "服务处理请求时发生错误，请使用请求 ID 联系维护人员"
+        if request.method in {"GET", "HEAD"} and "text/html" in request.headers.get("accept", ""):
+            response = templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "status_code": 500,
+                    "message": message,
+                    "request_id": request.state.request_id,
+                },
+                status_code=500,
+            )
+        else:
+            response = _error(
+                500,
+                "INTERNAL_SERVER_ERROR",
+                message,
+                request.state.request_id,
+            )
+        return _apply_response_controls(response, request, app_settings)
+
     def module_or_404(module_id: str):
         try:
             return active_registry.get(module_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="计算模块不存在") from exc
+
+    @app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
+    @app.head("/docs", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/redoc", response_class=HTMLResponse, include_in_schema=False)
+    @app.head("/redoc", response_class=HTMLResponse, include_in_schema=False)
+    def api_documentation(request: Request):
+        descriptions = {
+            ("GET", "/api/v1/modules"): "发现已注册模块、软件入口与工程发布状态。",
+            ("GET", "/api/v1/modules/{module_id}/schema"): "读取模块输入契约、中文标签、单位和验证算例。",
+            ("POST", "/api/v1/modules/{module_id}/calculations"): "严格校验输入，执行确定性计算并保存不可变快照。",
+            ("GET", "/api/v1/calculations/{calculation_id}"): "按计算 ID 读取已保存快照，不重新执行公式。",
+            ("GET", "/calculations/{calculation_id}/report"): "读取快照并呈现同源 HTML 工程报告。",
+            ("GET", "/api/v1/calculations/{calculation_id}/report.pdf"): "生成或读取同源 PDF 工程报告。",
+            ("GET", "/health/live"): "进程存活探针。",
+            ("GET", "/health/ready"): "模块注册表和数据库就绪探针。",
+        }
+        endpoints: list[dict[str, Any]] = []
+        for path, operations in app.openapi().get("paths", {}).items():
+            for method, operation in operations.items():
+                upper_method = method.upper()
+                if upper_method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+                    continue
+                endpoints.append(
+                    {
+                        "method": upper_method,
+                        "path": path,
+                        "summary": descriptions.get(
+                            (upper_method, path),
+                            str(operation.get("summary") or "平台接口"),
+                        ),
+                        "tags": tuple(str(tag) for tag in operation.get("tags", ())),
+                    }
+                )
+        method_order = {"GET": 0, "POST": 1, "PUT": 2, "PATCH": 3, "DELETE": 4}
+        endpoints.sort(key=lambda item: (item["path"], method_order[item["method"]]))
+        return templates.TemplateResponse(
+            request,
+            "api_docs.html",
+            {
+                "endpoints": endpoints,
+                "platform_version": app.version,
+            },
+        )
 
     @app.get("/", response_class=HTMLResponse)
     @app.head("/", response_class=HTMLResponse, include_in_schema=False)
@@ -132,10 +206,15 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         catalog = build_module_catalog(active_registry)
         available_modules = tuple(item for item in catalog if item.status == "available")
         planned_modules = tuple(item for item in catalog if item.status == "planned")
+        module_categories = tuple(dict.fromkeys(item.category for item in available_modules))
         featured_module = next(
             (item for item in available_modules if item.featured),
             available_modules[0] if available_modules else None,
         )
+        release_counts = {
+            status: sum(item.engineering_release_status == status for item in available_modules)
+            for status in ("internal_testing", "engineering_review", "released")
+        }
         return templates.TemplateResponse(
             request,
             "home.html",
@@ -146,7 +225,10 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 "featured_module": featured_module,
                 "available_count": len(available_modules),
                 "planned_count": len(planned_modules),
+                "module_categories": module_categories,
+                "release_counts": release_counts,
                 "public_base_url": app_settings.public_base_url,
+                "platform_version": app.version,
             },
         )
 
@@ -159,7 +241,11 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         return templates.TemplateResponse(
             request,
             module.web_template,
-            {"module": module, "public_base_url": app_settings.public_base_url},
+            {
+                "module": module,
+                "public_base_url": app_settings.public_base_url,
+                "platform_version": app.version,
+            },
         )
 
     @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -194,7 +280,11 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
 
     @app.get("/health/ready")
     def ready() -> dict[str, str]:
-        if not active_registry.list() or not database_is_ready(app_settings.database_path):
+        if (
+            not active_registry.list()
+            or not database_is_ready(app_settings.database_path, verify_integrity=False)
+            or not report_service.is_ready()
+        ):
             raise HTTPException(status_code=503, detail="应用尚未就绪")
         return {"status": "ready"}
 
@@ -288,15 +378,21 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             if exc.retry_after_seconds is not None:
                 response.headers["Retry-After"] = str(exc.retry_after_seconds)
             return response
+        legacy_release_status = snapshot["release_status"] == "legacy_unknown"
+        response_headers = {
+            "ETag": f'"{artifact["sha256"]}"',
+            "X-Report-SHA256": str(artifact["sha256"]),
+            "X-Report-Template-Version": str(artifact["template_version"]),
+            "X-Engineering-Release-Status": str(snapshot["release_status"]),
+            "X-Legacy-Release-Status-Missing": str(legacy_release_status).lower(),
+        }
+        if legacy_release_status:
+            response_headers["Warning"] = '299 - "Legacy report: engineering release status was not recorded"'
         return FileResponse(
             path,
             media_type="application/pdf",
-            filename=f"{snapshot['module_id']}-{calculation_id}.pdf",
-            headers={
-                "ETag": f'"{artifact["sha256"]}"',
-                "X-Report-SHA256": str(artifact["sha256"]),
-                "X-Report-Template-Version": str(artifact["template_version"]),
-            },
+            filename=f"{'legacy-' if legacy_release_status else ''}{snapshot['module_id']}-{calculation_id}.pdf",
+            headers=response_headers,
         )
 
     return app
@@ -307,6 +403,29 @@ def _error(status_code: int, code: str, message: str, request_id: str) -> JSONRe
         status_code=status_code,
         content={"error": {"code": code, "message": message, "request_id": request_id, "details": []}},
     )
+
+
+def _apply_response_controls(response: Response, request: Request, settings: Settings) -> Response:
+    request_id = request.state.request_id
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
+    if request.url.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "public, max-age=86400")
+    elif "/calculations" in request.url.path:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    else:
+        response.headers.setdefault("Cache-Control", "no-cache")
+    if settings.public_base_url and settings.public_base_url.startswith("https://"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 def _validation_error(request_id: str, errors: list[dict[str, Any]]) -> JSONResponse:

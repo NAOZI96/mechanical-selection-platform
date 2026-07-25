@@ -24,9 +24,6 @@ services:
       - type: bind
         source: ${DESIGN_AGENT_REPORTS_DIR:-./reports}
         target: /reports
-      - type: bind
-        source: ${DESIGN_AGENT_BACKUPS_DIR:-./backups}
-        target: /backups
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777

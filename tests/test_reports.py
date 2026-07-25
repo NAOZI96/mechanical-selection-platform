@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import tempfile
@@ -92,6 +93,41 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         self.assertEqual(response.json()["error"]["code"], "REPORT_CAPACITY_LIMIT")
         self.assertEqual(snapshot_response.status_code, 200)
         with closing(sqlite3.connect(settings.database_path)) as connection:
+            artifact_count = connection.execute("SELECT COUNT(*) FROM report_artifacts").fetchone()[0]
+        self.assertEqual(artifact_count, 0)
+
+    def test_legacy_snapshot_is_labeled_and_uncached_pdf_requires_recalculation(self) -> None:
+        created = self._create()
+        legacy_context = dict(created["report_context"])
+        legacy_context["schema_version"] = 3
+        legacy_context.pop("release_status", None)
+        legacy_context.pop("release_status_label", None)
+        with connect(self.database_path) as connection:
+            connection.execute(
+                """
+                UPDATE calculations
+                SET release_status = NULL, report_context_json = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(legacy_context, ensure_ascii=False, separators=(",", ":")),
+                    created["calculation_id"],
+                ),
+            )
+
+        snapshot = self.client.get(created["links"]["self"])
+        self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(snapshot.json()["release_status"], "legacy_unknown")
+
+        html_report = self.client.get(created["links"]["html_report"])
+        self.assertEqual(html_report.status_code, 200)
+        self.assertIn("未记录（按内部测试边界处理）（legacy_unknown）", html_report.text)
+
+        pdf = self.client.get(created["links"]["pdf"])
+        self.assertEqual(pdf.status_code, 409)
+        self.assertEqual(pdf.json()["error"]["code"], "LEGACY_RELEASE_STATUS_MISSING")
+        self.assertIn("重新计算", pdf.json()["error"]["message"])
+        with connect(self.database_path) as connection:
             artifact_count = connection.execute("SELECT COUNT(*) FROM report_artifacts").fetchone()[0]
         self.assertEqual(artifact_count, 0)
 

@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.4.0
+文档版本：0.5.0
 API 版本：`v1`  
 已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
@@ -19,13 +19,15 @@ API 版本：`v1`
 ### 2.1 健康检查
 
 - `GET /health/live`：进程存活，不访问重资源。
-- `GET /health/ready`：注册表有效、SQLite 可执行轻量查询。
+- `GET /health/ready`：注册表非空、SQLite 关键表及 `001`～`005` 迁移清单齐全并可执行 `SELECT 1`，且固定 PDF 字体、报告目录和临时目录存在。该端点是浅层就绪检查，不执行 `PRAGMA quick_check`、目录写探针、计算或 PDF 试渲染。
 
 ### 2.1A Web 页面
 
-- `GET /`：机械智选平台主页；展示运行时已注册模块和只读规划目录。
+- `GET /`：机械智选平台主页；展示运行时已注册模块，支持按模块名称/说明/能力搜索和按分类筛选。
 - `GET /modules/{module_id}`：九个已注册模块的统一页面入口，例如 `/modules/winch_drum`、`/modules/transmission_check`。
 - `HEAD /`、`HEAD /modules/{module_id}`：供可用性探针和爬虫做轻量状态检查。
+- `GET|HEAD /docs`、`GET|HEAD /redoc`：同一份服务端渲染的 CSP-safe API 参考；不加载 CDN、不执行内联脚本，端点清单由当前 OpenAPI schema 生成。
+- `GET /openapi.json`：FastAPI 生成的当前 API schema，供机器读取。
 - `GET /robots.txt`：允许抓取；生产环境配置公共站点根地址后附带 sitemap 地址。
 - `GET /sitemap.xml`：只在生产环境配置公共站点根地址时返回；首页始终可列入，模块 URL 只在对应 `release_status=released` 时列入。
 
@@ -108,8 +110,9 @@ API 版本：`v1`
 {
   "calculation_id": "uuid",
   "module_id": "winch_drum",
-  "module_version": "1.1.0",
+  "module_version": "1.2.0",
   "calculation_model_version": "winch_drum.calc.1.2.0",
+  "release_status": "engineering_review",
   "status": "completed_with_warnings",
   "created_at": "2026-07-22T00:00:00Z",
   "input_original": {},
@@ -138,6 +141,12 @@ API 版本：`v1`
       "affected_fields": ["suggested_motor_power_w"]
     }
   ],
+  "snapshot_schema_version": 4,
+  "report_context": {
+    "schema_version": 4,
+    "release_status": "engineering_review",
+    "release_status_label": "工程审核中"
+  },
   "links": {
     "self": "/api/v1/calculations/uuid",
     "html_report": "/calculations/uuid/report",
@@ -154,11 +163,29 @@ API 版本：`v1`
 
 - `GET /api/v1/calculations/{calculation_id}`：返回保存的快照，不重算。
 - `GET /calculations/{calculation_id}/report`：Jinja2 HTML 报告。
-- `GET /api/v1/calculations/{calculation_id}/report.pdf`：若已有且哈希/模板版本匹配则下载；否则从持久化报告 DTO 同步生成，限并发 1。繁忙固定返回 `429 PDF_BUSY` 和 `Retry-After: 2`；超时、容量或渲染失败返回受控 `503`。
+- `GET /api/v1/calculations/{calculation_id}/report.pdf`：先校验同 calculation/template artifact 的受控相对路径、文件大小和 SHA-256；有效缓存直接下载。没有有效缓存时，只允许从 schema v4 报告 DTO 同步生成，限并发 1。繁忙固定返回 `429 PDF_BUSY` 和 `Retry-After: 2`；超时、容量或渲染失败返回受控 `503`。
 
 HTML 报告按快照中的 `module_id` 返回对应计算页，并提供下载同一计算记录 PDF 的明确入口。HTML/PDF 从计算时持久化的同一份未舍入报告 DTO 渲染，包含原始/SI 输入、关键结果、公式、来源、警告、版本和免责声明；`winch_drum` 另含逐层容量表。面向用户的字段、结果等级、来源状态和专项校核项使用中文展示。公式审计按公式编号、表达式、代入值和结果分层显示，展示优化不改变保存的表达式、变量或计算值。PDF 使用固定字体/模板版本，生成文件经大小、SHA-256、原子落盘和缓存完整性校验。
 
+新计算的 snapshot schema 和 report context schema 均为 v4，并保存计算当时的 `release_status`。迁移前旧行的发布状态读取为 `legacy_unknown`：
+
+- HTML 报告仍可读取旧 DTO，或在旧记录没有 DTO 时仅从已保存快照映射展示；不得重新运行计算器，并统一按“未记录（按内部测试边界处理）”显示。
+- 与旧快照模板版本匹配且路径、大小、SHA-256 均有效的缓存 PDF 可继续下载；响应带 `X-Engineering-Release-Status: legacy_unknown`、`X-Legacy-Release-Status-Missing: true`、HTTP `Warning: 299 ...`，下载文件名前缀为 `legacy-`。
+- 旧快照没有有效缓存 PDF 时返回 `409 LEGACY_RELEASE_STATUS_MISSING`；缓存文件缺失、大小或 SHA-256 不符时先将 artifact 标记为失败，再按同一 `409` 规则处理。系统不得用当前注册表的发布状态重建旧 PDF。
+
 MVP 不提供任意目录文件名，不接受模板路径，不把 calculation ID 直接拼入文件系统路径。
+
+### 2.5 响应安全与缓存
+
+应用响应统一包含 `X-Request-ID`、`Content-Security-Policy`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY` 和禁用相机/定位/麦克风的 `Permissions-Policy`。CSP 只允许同源脚本和样式，并禁止插件对象、外部 base URI 与框架嵌入。`DESIGN_AGENT_PUBLIC_BASE_URL` 为 HTTPS 时额外返回一年期 HSTS。
+
+缓存策略按路径冻结：
+
+| 路径 | `Cache-Control` | 附加限制 |
+|---|---|---|
+| `/static/*` | `public, max-age=86400` | 静态文件 URL 变更时应更新查询版本。 |
+| 所有含 `/calculations` 的 API、HTML 与 PDF 路径 | `no-store` | `X-Robots-Tag: noindex, nofollow, noarchive`。 |
+| 其他页面/API（含 `/docs`） | `no-cache` | 客户端可保存但每次必须重新验证。 |
 
 ## 3. 校验规则与错误
 
@@ -169,7 +196,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 | 400 | JSON 格式或请求语义无法解析。 |
 | 411 | 带请求体的方法缺少 `Content-Length`。 |
 | 404 | 模块、计算或报告不存在。 |
-| 409 | 幂等键冲突或报告状态冲突（若 Phase 1 启用幂等键）。 |
+| 409 | `LEGACY_RELEASE_STATUS_MISSING`：旧快照没有可验证缓存 PDF，且缺少生成新版 PDF 所需的计算时发布状态。 |
 | 413 | 请求体超过限制。 |
 | 422 | 字段或跨字段校验失败。 |
 | 429 | 频率/PDF 并发限制。 |
@@ -211,6 +238,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 HTML/PDF 使用独立报告 DTO，字段包括：
 
 - 标题、计算 ID、模块/模型版本、生成时间；
+- 计算当时的工程发布状态及中文标签；旧记录为空时为 `legacy_unknown`；
 - 原始输入与 SI 输入；
 - 关键结果汇总；
 - 逐层表；
@@ -229,6 +257,8 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `/api/v1` 只在破坏 HTTP 契约时升级大版本。
 - `module_version` 标识模块接口和用户可见行为。
 - `calculation_model_version` 标识数值模型、输入语义、默认值和警告规则。
+- `snapshot_schema_version=4` 与报告上下文 `schema_version=4` 表示已冻结计算时发布状态；版本升级不触发旧快照重算。
+- 当前报告模板版本为 `winch_drum.report.1.2.1`，八个扩展模块分别为对应的 `*.report.1.0.1`；模板版本参与 PDF artifact 缓存键。
 - 增加可选字段可保持 API v1；改变字段语义、公式或默认值必须更新计算模型版本，并保留读取旧快照能力。
 - 八个扩展模块均使用相同通用端点；每个模块的专属输入/结果由其注册 Pydantic schema 决定。需求、公式和证据见 [`MODULE_REQUIREMENTS.md`](MODULE_REQUIREMENTS.md)、[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md) 和 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。
 
@@ -239,4 +269,6 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - 相同模型版本和 SI 输入的结果 JSON（除 ID/时间）稳定一致。
 - `null` 结果必带 `review_required` 与原因，0 值不得代表未知。
 - HTML/PDF 与 GET calculation 的关键值源自同一快照。
+- `/docs` 和 `/redoc` 在严格 CSP 下可读且没有内联/外部脚本；安全头与三类缓存策略逐路由验证。
+- 新快照保存计算时发布状态；`legacy_unknown` 的有效缓存 PDF 可读，无有效缓存时稳定返回 `409` 且不启动渲染器。
 - 模块发现精确返回 9 个注册 ID 及上述发布状态；每个模块的页面、schema、POST、GET、HTML 和 PDF 路径均有本地回归。

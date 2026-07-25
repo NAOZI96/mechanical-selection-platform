@@ -2,23 +2,34 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>{{ status_code }}｜机械智选 · WinchCalc Engineering</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#102a43">
+  <title>{{ status_code }}｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260724.4">
+  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
 </head>
 <body class="error-page">
   <main class="error-shell">
     <a class="brand" href="/" aria-label="返回首页">
-      <span class="brand-mark">W</span>
-      <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
     </a>
-    <p class="error-code">{{ status_code }}</p>
-    <h1>{{ message }}</h1>
-    <p>请检查地址，或返回平台首页继续使用已开放的工程计算模块。</p>
-    <a class="button button--primary" href="/">返回首页</a>
-    <small>请求 ID：{{ request_id }}</small>
+    <div class="error-layout">
+      <div>
+        <p class="error-code">{{ status_code }}</p>
+        <p class="launch-eyebrow"><span aria-hidden="true"></span> REQUEST NOT COMPLETED</p>
+      </div>
+      <div>
+        <h1>{{ message }}</h1>
+        <p>当前请求没有完成。请检查地址，或返回模块中心继续使用可进入的工程计算工作台。</p>
+        <div class="error-actions">
+          <a class="button button--primary" href="/">返回平台首页</a>
+          <a class="button button--secondary" href="/#modules">浏览功能模块</a>
+        </div>
+        <small>请求 ID：<code>{{ request_id }}</code></small>
+      </div>
+    </div>
   </main>
 </body>
 </html>

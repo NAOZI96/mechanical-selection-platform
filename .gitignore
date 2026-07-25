@@ -8,4 +8,5 @@ data/*.sqlite3-shm
 data/*.sqlite3-wal
 reports/
 tmp/
+logs/
 .pytest_cache/

@@ -4,7 +4,7 @@ MODULE_ID = "motor_drive"
 MODULE_NAME = "电机与驱动功率选型"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "motor_drive.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "motor_drive.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "motor_drive.report.1.0.1"
 
 DISCLAIMER = (
     "本结果是基于两个明确稳态工作段的传动折算和电机初选，不构成电机、驱动器或制动单元的采购放行依据。"

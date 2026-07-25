@@ -2,246 +2,303 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="可审计的机械设备计算与选型平台，覆盖绞车卷筒、传动链、齿轮、轴承、丝杠、同步带、电机、步进电机和气缸，并保留公式、来源、输入快照与模型版本。">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="面向机械设计人员的可追溯计算与选型平台，覆盖绞车卷筒、传动、齿轮、轴承、丝杠、同步带、电机、步进电机和气缸。">
+  <meta name="theme-color" content="#102a43">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="机械智选｜机械设备计算与选型平台">
-  <meta property="og:description" content="面向机械设计人员的确定性工程初算、候选校核与同源报告平台。">
+  <meta property="og:site_name" content="机械智选">
+  <meta property="og:title" content="机械智选｜可追溯的机械计算与选型平台">
+  <meta property="og:description" content="确定性计算、候选校核、公式审计与同源报告，在一个工作台完成。">
   {% if public_base_url %}
   <link rel="canonical" href="{{ public_base_url }}/">
   <meta property="og:url" content="{{ public_base_url }}/">
   {% endif %}
-  <title>机械智选｜机械设备计算与选型平台</title>
+  <title>机械智选｜可追溯的机械计算与选型平台</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260724.4">
+  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
 </head>
 <body class="home-page">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+  <div class="release-notice">
+    <div>
+      <span><i aria-hidden="true"></i> PLATFORM ONLINE</span>
+      <p>{{ available_count }} 个计算模块已接入；软件可进入不等于工程已放行，请以模块状态标识为准。</p>
+      <a href="#release-boundary">查看使用边界 <span aria-hidden="true">→</span></a>
+    </div>
+  </div>
+
   <header class="site-header home-header">
     <a class="brand" href="/" aria-label="机械智选首页">
       <span class="brand-mark">M</span>
       <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
     </a>
     <nav class="site-nav" aria-label="主页导航">
-      <a href="#modules">全部功能</a>
-      <a href="#platform">功能原理</a>
-      <a href="#extension">平台理念</a>
+      <a href="#modules">功能模块</a>
+      <a href="#platform">平台能力</a>
+      <a href="#workflow">使用流程</a>
+      <a href="#release-boundary">工程边界</a>
     </nav>
-    {% if featured_module and featured_module.entry_path %}
-    <a class="header-action" href="{{ featured_module.entry_path }}">进入当前模块 <span aria-hidden="true">→</span></a>
-    {% endif %}
+    <div class="home-header__actions">
+      <a class="header-docs" href="/docs">API 文档</a>
+      <a class="header-action" href="#modules">开始使用 <span aria-hidden="true">→</span></a>
+    </div>
   </header>
 
-  <main class="home-main">
-    <section class="home-hero" aria-labelledby="home-title">
-      <div class="home-hero__copy">
-        <p class="home-kicker"><span></span> MECHANICAL SELECTION ENGINEERING PLATFORM</p>
-        <h1 id="home-title">机械设备计算与选型平台</h1>
-        <p class="home-intro">
-          以确定性 Python 和统一 SI 单位完成九类机械工程初算与候选校核，保存输入来源、公式步骤、
-          模型版本和同源报告。结果用于受控方案比较，不替代正式标准核查、制造商确认、结构与安全专项
-          校核或具备资质的工程师审核。
+  <main id="main-content" class="home-main">
+    <section class="launch-hero" aria-labelledby="home-title">
+      <div class="launch-hero__copy">
+        <p class="launch-eyebrow"><span aria-hidden="true"></span> 面向机械设计的可复核计算工作台</p>
+        <h1 id="home-title">
+          <span>把机械选型，做成</span>
+          <span class="launch-title-evidence"><em>可计算、可追溯</em><span>的证据链</span></span>
+        </h1>
+        <p class="launch-hero__intro">
+          从工况输入、单位换算和公式步骤，到候选校核、风险提示与同源报告；
+          用确定性 Python 内核把零散计算组织成可复查、可比较的工程记录。
         </p>
-        <div class="home-actions">
+        <div class="launch-hero__actions">
+          <a class="button button--primary button--launch" href="#modules">
+            浏览 {{ available_count }} 个模块 <span aria-hidden="true">↓</span>
+          </a>
           {% if featured_module and featured_module.entry_path %}
-          <a class="button button--primary button--large" href="{{ featured_module.entry_path }}">
-            快速方案计算 <span aria-hidden="true">↗</span>
+          <a class="button button--secondary button--launch" href="{{ featured_module.entry_path }}">
+            进入{{ featured_module.module_name }}
           </a>
           {% endif %}
         </div>
-        <dl class="hero-metrics" aria-label="平台概况">
-          <div><dt>{{ "%02d"|format(available_count) }}</dt><dd>已接入模块</dd></div>
-          <div><dt>{{ "%02d"|format(planned_count) }}</dt><dd>规划模块</dd></div>
-          <div><dt>SI</dt><dd>内部统一单位</dd></div>
-          <div><dt>V1</dt><dd>统一模块接口</dd></div>
+        <p class="launch-hero__microcopy">
+          <span>严格输入验证</span><span>内部统一 SI</span><span>HTML / PDF 同源</span>
+        </p>
+        <dl class="launch-facts" aria-label="平台概况">
+          <div><dt>{{ "%02d"|format(available_count) }}</dt><dd>已接入工作台</dd></div>
+          <div><dt>100%</dt><dd>确定性计算内核</dd></div>
+          <div><dt>V1</dt><dd>统一模块契约</dd></div>
+          <div><dt>2×</dt><dd>HTML / PDF 报告</dd></div>
         </dl>
       </div>
 
-      <aside class="engineering-console" data-home-animation aria-label="绞车与卷筒模块动态示意">
-        <div class="console-topline">
-          <span>ACTIVE MODULE / 01</span>
-          <button class="console-replay" type="button" hidden aria-label="重播卷筒工程图启动动画">
-            REPLAY <span aria-hidden="true">↻</span>
-          </button>
-          <span class="live-label"><i></i> READY</span>
+      <aside class="product-preview" aria-label="平台计算快照示意">
+        <div class="product-preview__bar">
+          <span>CALCULATION SNAPSHOT</span>
+          <span class="product-preview__online"><i aria-hidden="true"></i> CALC ENGINE ONLINE</span>
         </div>
-        <div class="console-drawing">
-          <div class="console-scanline" aria-hidden="true"></div>
-          <svg viewBox="0 0 560 300" role="img" aria-label="卷筒与钢丝绳工程线稿">
-            <g class="drawing-grid">
-              <path d="M30 44H530M30 94H530M30 144H530M30 194H530M30 244H530"/>
-              <path d="M80 20V280M180 20V280M280 20V280M380 20V280M480 20V280"/>
+        <div class="product-preview__canvas">
+          <div class="product-preview__label">
+            <span>WINCH / DRUM</span>
+            <strong>卷筒几何与逐层容绳</strong>
+          </div>
+          <svg viewBox="0 0 620 290" role="img" aria-label="卷筒、钢丝绳和尺寸线示意图">
+            <g class="preview-grid">
+              <path d="M40 42H580M40 92H580M40 142H580M40 192H580M40 242H580"/>
+              <path d="M90 24V264M200 24V264M310 24V264M420 24V264M530 24V264"/>
             </g>
-            <g class="drawing-main">
-              <path d="M128 91V214M432 91V214"/>
-              <path d="M111 104H145M111 201H145M415 104H449M415 201H449"/>
-              <path d="M145 113H415V192H145Z"/>
-              <ellipse cx="145" cy="152.5" rx="22" ry="39.5"/>
-              <ellipse cx="415" cy="152.5" rx="22" ry="39.5"/>
-              <path d="M160 116C184 129 184 176 160 189M187 113C211 129 211 176 187 192M214 113C238 129 238 176 214 192M241 113C265 129 265 176 241 192M268 113C292 129 292 176 268 192M295 113C319 129 319 176 295 192M322 113C346 129 346 176 322 192M349 113C373 129 373 176 349 192M376 113C400 129 400 176 376 192"/>
-              <path d="M437 152H511"/>
-              <circle cx="515" cy="152" r="5"/>
+            <g class="preview-machine">
+              <path d="M142 88V210M478 88V210"/>
+              <path d="M125 102H159M125 196H159M461 102H495M461 196H495"/>
+              <path d="M159 111H461V188H159Z"/>
+              <ellipse cx="159" cy="149.5" rx="22" ry="38.5"/>
+              <ellipse cx="461" cy="149.5" rx="22" ry="38.5"/>
+              <path d="M174 114C198 128 198 171 174 185M207 111C231 128 231 171 207 188M240 111C264 128 264 171 240 188M273 111C297 128 297 171 273 188M306 111C330 128 330 171 306 188M339 111C363 128 363 171 339 188M372 111C396 128 396 171 372 188M405 111C429 128 429 171 405 188"/>
+              <path d="M483 149H558"/><circle cx="562" cy="149" r="5"/>
             </g>
-            <g class="drawing-dimension">
-              <path d="M145 239H415M145 232V246M415 232V246"/>
-              <path d="M96 113V192M89 113H103M89 192H103"/>
+            <g class="preview-dimension">
+              <path d="M159 229H461M159 222V236M461 222V236"/>
+              <path d="M111 111V188M104 111H118M104 188H118"/>
             </g>
-            <g class="drawing-copy">
-              <text x="253" y="263">DRUM FACE</text>
-              <text x="44" y="157">Ø D</text>
-              <text x="440" y="142">ROPE</text>
+            <g class="preview-copy">
+              <text x="275" y="253">DRUM FACE</text>
+              <text x="66" y="154">Ø D</text>
+              <text x="501" y="138">ROPE</text>
             </g>
           </svg>
+        </div>
+        <dl class="product-preview__readout">
+          <div><dt>INPUT</dt><dd>工况、几何与来源</dd></div>
+          <div><dt>ENGINE</dt><dd>确定性 Python · SI</dd></div>
+          <div><dt>OUTPUT</dt><dd>快照 · HTML · PDF</dd></div>
+        </dl>
+        <div class="product-preview__status">
+          <span class="status-pill status-pill--{{ featured_module.engineering_release_status if featured_module else 'engineering_review' }}">
+            <i aria-hidden="true"></i>{{ featured_module.engineering_release_label if featured_module else "工程审核中" }}
+          </span>
+          <p>工程状态与软件在线状态独立管理；未放行项在结果和报告中持续可见。</p>
         </div>
       </aside>
     </section>
 
-    <section class="module-section" id="modules" data-scroll-stage="modules" aria-labelledby="module-title">
-      <div class="section-heading section-heading--home">
+    <div class="trust-strip" aria-label="平台核心能力">
+      <span>统一 SI 单位</span>
+      <span>后端严格校验</span>
+      <span>公式步骤可审计</span>
+      <span>版本化计算快照</span>
+      <span>同源 HTML / PDF</span>
+    </div>
+
+    <section class="launch-modules" id="modules" aria-labelledby="module-title">
+      <div class="launch-section-heading">
         <div>
-          <p class="section-index">01 / MODULE DIRECTORY</p>
-          <h2 id="module-title">全部功能模块</h2>
+          <p class="launch-eyebrow"><span aria-hidden="true"></span> MODULE DIRECTORY</p>
+          <h2 id="module-title">九个工作台，一处进入</h2>
         </div>
-        <p>从上方轮转展台或下方目录进入已接入模块。每个模块独立显示软件接入状态与工程发布状态，内部测试不等于工程放行。</p>
+        <p>选择一个工程问题开始。模块卡同时标明软件入口和工程发布状态，避免把“能计算”误读成“已放行”。</p>
       </div>
 
-      {% if module_catalog %}
-      <div class="module-carousel" data-module-carousel aria-roledescription="轮播" aria-label="功能模块轮转展台">
-        <div class="module-carousel__viewport" aria-live="off">
-          {% for item in module_catalog %}
-          <article
-            class="featured-module module-carousel__slide{% if item.status == 'planned' %} featured-module--planned{% endif %}"
-            data-carousel-slide
-            data-module-id="{{ item.module_id }}"
-            aria-roledescription="幻灯片"
-            aria-label="{{ loop.index }} / {{ module_catalog|length }}：{{ item.module_name }}"
-            {% if not loop.first %}hidden{% endif %}
-          >
-            <div class="featured-module__visual module-visual--{{ item.icon_key }}">
-              <div class="module-portrait" aria-hidden="true">
-                <span>{{ "%02d"|format(loop.index) }}</span>
-                <strong>{{ item.category }}</strong>
-              </div>
-              {% if item.module_id == "winch_drum" %}
-              <div class="module-glyph" aria-hidden="true">
-                <span class="glyph-flange glyph-flange--left"></span>
-                <span class="glyph-drum"></span>
-                <span class="glyph-flange glyph-flange--right"></span>
-                <span class="glyph-rope"></span>
-              </div>
-              {% endif %}
-              <p>{{ item.module_id }}</p>
-            </div>
-            <div class="featured-module__content">
-              <div class="module-meta">
-                <span class="status-pill status-pill--{{ item.engineering_release_status or item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.engineering_release_label or item.status_label }}</span>
-                <span>{{ item.category }}</span>
-                {% if item.module_version %}<span>模块 v{{ item.module_version }}</span>{% endif %}
-              </div>
-              <h3>{{ item.module_name }}</h3>
-              <p>{{ item.summary }}</p>
-              <ul class="capability-list" aria-label="{{ item.module_name }}能力">
-                {% for capability in item.capabilities %}
-                <li>{{ capability }}</li>
-                {% endfor %}
-              </ul>
-              {% if item.entry_path %}
-              <a class="module-entry" href="{{ item.entry_path }}">
-                进入功能模块 <span aria-hidden="true">→</span>
-              </a>
-              {% else %}
-              <span class="module-entry module-entry--disabled" aria-disabled="true">规划中 · 待开放</span>
-              {% endif %}
-            </div>
-          </article>
+      <div class="module-finder" data-module-finder>
+        <label class="module-search">
+          <span class="sr-only">搜索功能模块</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4m2.4-5.1a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+          <input type="search" placeholder="搜索模块、能力或类别" autocomplete="off" data-module-search>
+        </label>
+        <div class="module-filters" role="group" aria-label="按类别筛选">
+          <button type="button" data-module-filter="all" aria-pressed="true">全部</button>
+          {% for category in module_categories %}
+          <button type="button" data-module-filter="{{ category }}" aria-pressed="false">{{ category }}</button>
           {% endfor %}
         </div>
-        <div class="module-carousel__controls">
-          <div class="carousel-arrows">
-            <button type="button" data-carousel-previous aria-label="上一个功能模块">←</button>
-            <span><strong data-carousel-current>01</strong> / {{ "%02d"|format(module_catalog|length) }}</span>
-            <button type="button" data-carousel-next aria-label="下一个功能模块">→</button>
-          </div>
-          <div class="carousel-dots" role="group" aria-label="选择功能模块">
-            {% for item in module_catalog %}
-            <button
-              type="button"
-              data-carousel-dot="{{ loop.index0 }}"
-              aria-label="显示{{ item.module_name }}"
-              aria-pressed="{{ 'true' if loop.first else 'false' }}"
-            ></button>
-            {% endfor %}
-          </div>
-        </div>
+        <p class="module-results" aria-live="polite"><strong data-module-count>{{ available_count }}</strong> 个模块可进入</p>
       </div>
-      {% endif %}
 
-      <div class="directory-heading">
-        <span>DIRECTORY / {{ "%02d"|format(module_catalog|length) }}</span>
-        <p>{{ available_count }} 个已接入 · {{ planned_count }} 个规划中</p>
-      </div>
-      <div class="module-grid module-grid--directory">
+      <div class="launch-module-grid">
         {% for item in module_catalog %}
-        <article class="module-card module-card--{{ item.status }}">
-          <div class="module-card__top">
-            <span class="module-code">{{ "%02d"|format(loop.index) }}</span>
-            <span class="status-pill status-pill--{{ item.engineering_release_status or item.status }}">{% if item.status == "available" %}<i></i>{% endif %}{{ item.engineering_release_label or item.status_label }}</span>
+        <article
+          class="launch-module-card"
+          data-module-card
+          data-category="{{ item.category }}"
+          data-search="{{ item.module_name }} {{ item.category }} {{ item.summary }} {{ item.capabilities | join(' ') }}"
+        >
+          <div class="launch-module-card__top">
+            <span class="launch-module-card__number">{{ "%02d"|format(loop.index) }}</span>
+            <span class="status-pill status-pill--{{ item.engineering_release_status or item.status }}">
+              {% if item.status == "available" %}<i aria-hidden="true"></i>{% endif %}
+              {{ item.engineering_release_label or item.status_label }}
+            </span>
           </div>
-          <p class="module-category">{{ item.category }}</p>
+          <p class="launch-module-card__category">{{ item.category }}</p>
           <h3>{{ item.module_name }}</h3>
           <p>{{ item.summary }}</p>
-          {% if item.entry_path %}
-          <a href="{{ item.entry_path }}">进入模块 <span aria-hidden="true">→</span></a>
-          {% else %}
-          <span class="module-card__pending">完成验证后开放</span>
-          {% endif %}
+          <ul aria-label="{{ item.module_name }}能力">
+            {% for capability in item.capabilities %}
+            <li>{{ capability }}</li>
+            {% endfor %}
+          </ul>
+          <div class="launch-module-card__footer">
+            {% if item.entry_path %}
+            <a href="{{ item.entry_path }}">打开工作台 <span aria-hidden="true">→</span></a>
+            {% else %}
+            <span aria-disabled="true">规划中 · 待开放</span>
+            {% endif %}
+            {% if item.module_version %}<small>v{{ item.module_version }}</small>{% endif %}
+          </div>
         </article>
         {% endfor %}
       </div>
+      <div class="module-empty" data-module-empty hidden>
+        <strong>没有匹配的模块</strong>
+        <p>请更换关键词或选择“全部”查看完整目录。</p>
+      </div>
     </section>
 
-    <section class="platform-section" id="platform" data-scroll-stage="platform" aria-labelledby="platform-title">
-      <div class="section-heading section-heading--home">
+    <section class="launch-platform" id="platform" aria-labelledby="platform-title">
+      <div class="launch-platform__heading">
+        <p class="launch-eyebrow"><span aria-hidden="true"></span> WHY MECHANICAL SELECTION</p>
+        <h2 id="platform-title">结果不只是一串数字</h2>
+        <p>真正可用的工程计算，还要回答数字从哪里来、怎么算、处于什么等级，以及哪些问题仍需人工确认。</p>
+      </div>
+      <div class="launch-value-grid">
+        <article>
+          <span>01</span>
+          <div class="value-icon" aria-hidden="true">Σ</div>
+          <h3>确定性计算</h3>
+          <p>业务公式与页面、数据库和报告解耦；同样输入和模型版本得到同样结果。</p>
+        </article>
+        <article>
+          <span>02</span>
+          <div class="value-icon" aria-hidden="true">↗</div>
+          <h3>完整证据链</h3>
+          <p>原始输入、SI 换算、公式步骤、参数来源、警告和模型版本共同保存。</p>
+        </article>
+        <article>
+          <span>03</span>
+          <div class="value-icon" aria-hidden="true">□</div>
+          <h3>同源工程报告</h3>
+          <p>页面、API、HTML 和 PDF 读取同一快照，不在报告阶段重新计算或改写结论。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="launch-workflow" id="workflow" aria-labelledby="workflow-title">
+      <div class="launch-section-heading">
         <div>
-          <p class="section-index">02 / PLATFORM PRINCIPLE</p>
-          <h2 id="platform-title">从工程问题到可追溯方案</h2>
+          <p class="launch-eyebrow"><span aria-hidden="true"></span> WORKFLOW</p>
+          <h2 id="workflow-title">四步形成可复核方案</h2>
         </div>
-        <p>网站把零散的工程输入组织成可复核的计算过程，让每个数字都能找到来源、公式、版本与适用边界。</p>
+        <p>从真实工况出发，在每个阶段保留依据与边界；缺失的工程数据不会被静默补齐。</p>
       </div>
-      <ol class="workflow-grid">
-        <li><span>01 / INPUT</span><div><h3>描述真实工况</h3><p>围绕载荷、速度、几何、材料与工作级别采集输入，同时记录单位和参数来源。</p></div></li>
-        <li><span>02 / CALCULATE</span><div><h3>执行确定性计算</h3><p>内部统一 SI 单位，由独立 Python 计算内核执行公式；同样输入得到同样结果。</p></div></li>
-        <li><span>03 / REVIEW</span><div><h3>呈现结果与边界</h3><p>理论值、初选值、建议值和待校核值分级展示，风险与缺失依据不被隐藏。</p></div></li>
-        <li><span>04 / RECORD</span><div><h3>形成同源记录</h3><p>页面、API 与 PDF 读取同一计算快照，保留模型版本，便于复查和方案比较。</p></div></li>
+      <ol class="launch-workflow__steps">
+        <li><span>01</span><div><small>INPUT</small><h3>填写工况与来源</h3><p>输入载荷、速度、几何、候选数据和参数来源状态。</p></div></li>
+        <li><span>02</span><div><small>CALCULATE</small><h3>执行公式与换算</h3><p>后端严格校验，在统一 SI 口径下执行确定性计算。</p></div></li>
+        <li><span>03</span><div><small>REVIEW</small><h3>检查结果与警告</h3><p>区分理论值、初选值、建议值和待校核值，保留未完成项。</p></div></li>
+        <li><span>04</span><div><small>RECORD</small><h3>保存快照与报告</h3><p>生成可回查的计算 ID、HTML 报告和同源 PDF。</p></div></li>
       </ol>
     </section>
 
-    <section class="extension-section" id="extension" data-scroll-stage="extension" aria-labelledby="extension-title">
-      <div class="extension-copy">
-        <p class="section-index">03 / DESIGN PHILOSOPHY</p>
-        <h2 id="extension-title">让计算透明，让结论有边界</h2>
-        <p>平台不是替代工程师的“黑箱答案”，而是把输入、方法、结果和待确认项放在同一条证据链上，帮助工程师更快比较方案、更稳妥地做出判断。</p>
+    <section class="launch-boundary" id="release-boundary" aria-labelledby="boundary-title">
+      <div class="launch-boundary__copy">
+        <p class="launch-eyebrow"><span aria-hidden="true"></span> RELEASE BOUNDARY</p>
+        <h2 id="boundary-title">软件可上线，工程结论仍按门禁管理</h2>
+        <p>
+          平台可以作为受控初算、候选比较和计算留痕工具投入使用；模块状态不会因页面可访问或计算成功而自动升级。
+          正式制造、采购、安全认证和工程签字仍需适用标准、专项校核、制造商数据与具备资质的工程审核。
+        </p>
+        <a href="/docs">查看 API 与数据契约 <span aria-hidden="true">→</span></a>
       </div>
-      <ol class="extension-steps">
-        <li><span>1</span><p><strong>可解释</strong>关键公式、代入值与计算步骤可阅读</p></li>
-        <li><span>2</span><p><strong>可追溯</strong>输入来源、假设、版本与报告相互对应</p></li>
-        <li><span>3</span><p><strong>不越界</strong>不把初步选型包装成强度、采购或审批结论</p></li>
-        <li><span>4</span><p><strong>可扩展</strong>每个新模块独立验证，通过统一契约接入平台</p></li>
-      </ol>
+      <dl class="release-grid">
+        <div class="release-grid__review">
+          <dt>{{ "%02d"|format(release_counts.engineering_review) }}</dt>
+          <dd><strong>工程审核中</strong><span>已有完整软件链路，工程依据仍在审核</span></dd>
+        </div>
+        <div class="release-grid__testing">
+          <dt>{{ "%02d"|format(release_counts.internal_testing) }}</dt>
+          <dd><strong>内部测试</strong><span>可用于受控测试与初算，尚未工程放行</span></dd>
+        </div>
+        <div class="release-grid__released">
+          <dt>{{ "%02d"|format(release_counts.released) }}</dt>
+          <dd><strong>工程已放行</strong><span>只有关闭模块全部门禁后才会计入</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="launch-final-cta" aria-labelledby="final-cta-title">
+      <p>MECHANICAL SELECTION PLATFORM</p>
+      <h2 id="final-cta-title">从一个真实工况开始</h2>
+      <span>选择模块、记录输入来源，并生成第一份可复核计算快照。</span>
+      <a class="button button--primary button--launch" href="#modules">选择功能模块 <span aria-hidden="true">↑</span></a>
     </section>
   </main>
 
-  <footer class="home-footer" data-scroll-stage="footer">
-    <div>
-      <a class="brand brand--footer" href="/">
-        <span class="brand-mark">M</span>
-        <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
-      </a>
-      <p>Mechanical calculation · deterministic SI models · candidate checks · auditable reports。</p>
+  <footer class="launch-footer">
+    <div class="launch-footer__top">
+      <div>
+        <a class="brand brand--footer" href="/">
+          <span class="brand-mark">M</span>
+          <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
+        </a>
+        <p>让机械计算透明，让每个结论都有来源、版本与适用边界。</p>
+      </div>
+      <nav aria-label="页脚导航">
+        <div><strong>产品</strong><a href="#modules">功能模块</a><a href="#platform">平台能力</a><a href="#workflow">使用流程</a></div>
+        <div><strong>开发</strong><a href="/docs">API 文档</a><a href="/api/v1/modules">模块接口</a><a href="/openapi.json">OpenAPI JSON</a></div>
+        <div><strong>边界</strong><a href="#release-boundary">工程状态</a><a href="/robots.txt">抓取策略</a></div>
+      </nav>
     </div>
-    <p>平台输出不替代适用标准核查、结构强度与安全校核、制造商确认或工程审批。</p>
+    <div class="launch-footer__bottom">
+      <p>平台输出不替代适用标准核查、结构与安全专项校核、制造商确认或工程审批。</p>
+      <span>Platform v{{ platform_version }} · Deterministic SI models</span>
+    </div>
   </footer>
-  <script src="/static/vendor/animejs/anime.umd.min.js" defer></script>
-  <script src="/static/home-animation.js?v=20260724.3" defer></script>
+
+  <script src="/static/home-animation.js?v=20260725.1" defer></script>
 </body>
 </html>

@@ -2,28 +2,37 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   {% if module.release_status != "released" %}<meta name="robots" content="noindex,nofollow">{% endif %}
   <meta name="description" content="绞车卷筒、逐层容绳量、电机功率、参考减速比和静态制动力矩的确定性工程计算与初步选型工具。">
+  <meta name="theme-color" content="#102a43">
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/winch_drum">{% endif %}
-  <title>绞车卷筒与容绳量计算｜WinchCalc Engineering</title>
+  <title>绞车卷筒与容绳量计算｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/app.css?v=20260724.4">
-    <script src="/static/calculator.js?v=20260724.2" defer></script>
+    <link rel="stylesheet" href="/static/app.css?v=20260725.4">
+    <script src="/static/calculator.js?v=20260725.1" defer></script>
 </head>
-<body>
+<body class="calculator-page">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <header class="site-header">
     <a class="brand" href="/" aria-label="机械智选首页">
-      <span class="brand-mark">W</span>
-      <span><strong>机械智选</strong><small>WinchCalc Engineering</small></span>
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
     </a>
     <div class="calculator-header-actions">
       <a class="header-back" href="/#modules">模块中心</a>
-      <div class="header-status"><span></span>计算模型 winch_drum.calc.1.2.0</div>
+      <a class="header-back calculator-docs-link" href="/docs">API 文档</a>
+      <div class="header-status">
+        <span></span>
+        {% if module.release_status == "internal_testing" %}内部测试
+        {% elif module.release_status == "engineering_review" %}工程审核中
+        {% else %}工程已放行{% endif %}
+        · 模型 {{ module.calculation_model_version }}
+      </div>
     </div>
   </header>
 
-  <main class="page-shell">
+  <main id="main-content" class="page-shell">
     <section class="hero">
       <div>
         <p class="eyebrow">WINCH DRUM · ENGINEERING PRESELECTION</p>
@@ -31,7 +40,11 @@
         <p>先明确拉力与速度位置、倍率和卷筒边界，再计算载荷、功率、逐层容绳量、转速、参考速比和静态制动力矩。</p>
       </div>
       <aside class="scope-note">
-        <strong>工程边界</strong>
+        <strong>
+          {% if module.release_status == "internal_testing" %}内部测试（internal_testing）
+          {% elif module.release_status == "engineering_review" %}工程审核中（engineering_review）
+          {% else %}工程已放行（released）{% endif %}
+        </strong>
         <p>结果用于方案比较和初步选型，不包含钢丝绳强度、卷筒结构、疲劳、动态冲击及采购级型号确认。</p>
       </aside>
     </section>
@@ -42,6 +55,13 @@
       <div><span>03</span><strong>卷筒</strong><p>单层或多层储绳卷筒，按绳中心线逐层离散计算。</p></div>
       <div><span>04</span><strong>设计模式</strong><p>当前为快速估算与初步选型，不输出整机“设计合格”结论。</p></div>
     </section>
+
+    <noscript>
+      <div class="calculator-noscript" role="alert">
+        <strong>此计算工作台需要 JavaScript 提交严格输入并展示快照。</strong>
+        <span>请启用 JavaScript 后重新加载；也可查看 <a href="/docs">API 文档</a>。</span>
+      </div>
+    </noscript>
 
     <div class="workspace-grid">
       <form id="winch-form" class="input-panel" novalidate>
@@ -213,15 +233,20 @@
           <div id="result-meta" class="result-meta"></div>
           <section id="design-conclusion" class="design-conclusion"></section>
           <section><div class="section-title"><h3>工程警告</h3><span id="warning-count"></span></div><ul id="warning-list" class="warning-list"></ul></section>
-          <section><div class="section-title"><h3>关键校核</h3><span>未完成项不得视为合格</span></div><div class="table-wrap"><table><thead><tr><th>校核项</th><th>计算值</th><th>要求值</th><th>结果</th></tr></thead><tbody id="check-rows"></tbody></table></div></section>
+          <section><div class="section-title"><h3 id="winch-check-title">关键校核</h3><span>未完成项不得视为合格</span></div><div class="table-wrap"><table aria-labelledby="winch-check-title"><caption class="sr-only">关键校核结果</caption><thead><tr><th scope="col">校核项</th><th scope="col">计算值</th><th scope="col">要求值</th><th scope="col">结果</th></tr></thead><tbody id="check-rows"></tbody></table></div></section>
           <section><div class="section-title"><h3>关键结果</h3><span>未作展示舍入回写</span></div><div id="key-results" class="result-cards"></div></section>
-          <section><div class="section-title"><h3>逐层容绳明细</h3><span>绳中心线螺旋长度</span></div><div class="table-wrap"><table><thead><tr><th>层</th><th>工作直径 m</th><th>每圈长度 m</th><th>完整圈</th><th>使用圈</th><th>本层使用 m</th><th>累计使用 m</th></tr></thead><tbody id="layer-rows"></tbody></table></div></section>
+          <section><div class="section-title"><h3 id="winch-layer-title">逐层容绳明细</h3><span>绳中心线螺旋长度</span></div><div class="table-wrap"><table aria-labelledby="winch-layer-title"><caption class="sr-only">逐层容绳计算明细</caption><thead><tr><th scope="col">层</th><th scope="col">工作直径 m</th><th scope="col">每圈长度 m</th><th scope="col">完整圈</th><th scope="col">使用圈</th><th scope="col">本层使用 m</th><th scope="col">累计使用 m</th></tr></thead><tbody id="layer-rows"></tbody></table></div></section>
           <section><div class="section-title"><h3>假设与来源</h3></div><ul id="assumption-list" class="assumption-list"></ul></section>
         </div>
       </section>
     </div>
   </main>
 
-  <footer><p>计算模型 <strong>winch_drum.calc.1.2.0</strong> · 结果必须经过适用标准、结构强度和工程审批复核。</p></footer>
+  <footer>
+    <p>
+      Platform v{{ platform_version }} · 计算模型 <strong>{{ module.calculation_model_version }}</strong> ·
+      工程状态 <strong>{{ module.release_status }}</strong> · 结果必须经过适用标准、结构强度和工程审批复核。
+    </p>
+  </footer>
 </body>
 </html>

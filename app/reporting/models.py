@@ -44,6 +44,8 @@ class ReportContext(BaseModel):
     calculation_model_version: str
     report_template_version: str
     calculation_created_at: str
+    release_status: str = "legacy_unknown"
+    release_status_label: str = "未记录（按内部测试边界处理）"
     status: str
     status_label: str | None = None
     original_inputs: tuple[ReportInputRow, ...]

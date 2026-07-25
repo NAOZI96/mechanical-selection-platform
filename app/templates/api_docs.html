@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#102a43">
+  <meta name="description" content="机械智选平台 API 路由、数据契约与调用边界。">
+  <title>API 文档｜机械智选</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
+</head>
+<body class="docs-page">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="site-header docs-header">
+    <a class="brand" href="/" aria-label="机械智选首页">
+      <span class="brand-mark">M</span>
+      <span><strong>机械智选</strong><small>Mechanical Selection Platform</small></span>
+    </a>
+    <nav class="site-nav" aria-label="文档导航">
+      <a href="/#modules">功能模块</a>
+      <a href="/openapi.json">OpenAPI JSON</a>
+    </nav>
+    <a class="header-action" href="/">返回平台 <span aria-hidden="true">→</span></a>
+  </header>
+
+  <main id="main-content" class="docs-main">
+    <section class="docs-hero">
+      <p class="launch-eyebrow"><span aria-hidden="true"></span> API REFERENCE / V{{ platform_version }}</p>
+      <h1>稳定、可审计的模块接口</h1>
+      <p>
+        页面与外部调用复用同一套 Pydantic 输入契约和确定性计算服务。
+        计算成功会返回不可变快照链接；HTML 与 PDF 报告只读取该快照，不重新计算。
+      </p>
+      <div class="docs-hero__actions">
+        <a class="button button--primary" href="/openapi.json">下载 OpenAPI JSON</a>
+        <a class="button button--secondary" href="/api/v1/modules">查看模块发现接口</a>
+      </div>
+    </section>
+
+    <aside class="docs-boundary" aria-label="接口使用边界">
+      <strong>接口可调用不等于模块工程已放行</strong>
+      <p>
+        请同时读取模块发现接口中的 <code>release_status</code>，并保留响应中的模型版本、警告、
+        免责声明和未完成专项校核。计算类响应使用 <code>Cache-Control: no-store</code>。
+      </p>
+    </aside>
+
+    <section class="docs-section" aria-labelledby="endpoint-title">
+      <div class="docs-section__heading">
+        <div>
+          <p class="launch-eyebrow"><span aria-hidden="true"></span> ENDPOINTS</p>
+          <h2 id="endpoint-title">平台接口目录</h2>
+        </div>
+        <p>
+          {{ endpoints | length }} 个公开路由 · 路由与基础 envelope 以 OpenAPI JSON 为准，
+          模块字段、必填性和单位以模块 schema 接口为准。
+        </p>
+      </div>
+      <div class="endpoint-list">
+        {% for endpoint in endpoints %}
+        <article class="endpoint-card">
+          <div>
+            <span class="endpoint-method endpoint-method--{{ endpoint.method | lower }}">{{ endpoint.method }}</span>
+            <code>{{ endpoint.path }}</code>
+          </div>
+          <p>{{ endpoint.summary }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="docs-quickstart" aria-labelledby="quickstart-title">
+      <div>
+        <p class="launch-eyebrow"><span aria-hidden="true"></span> QUICK START</p>
+        <h2 id="quickstart-title">推荐调用顺序</h2>
+      </div>
+      <ol>
+        <li><span>01</span><p><strong>发现模块</strong>读取模块 ID、页面入口和工程发布状态。</p></li>
+        <li><span>02</span><p><strong>读取契约</strong>取得必填字段、严格类型、单位与显示元数据。</p></li>
+        <li><span>03</span><p><strong>创建快照</strong>提交 <code>{"input": {...}}</code>，保存返回的计算 ID。</p></li>
+        <li><span>04</span><p><strong>读取报告</strong>使用响应中的 HTML / PDF 链接复核同源结果。</p></li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="docs-footer">
+    <p>Platform v{{ platform_version }} · 计算输出不替代适用标准、专项校核、制造商确认或工程审批。</p>
+    <a href="/health/live">进程存活探针</a>
+  </footer>
+</body>
+</html>

@@ -4,7 +4,7 @@ MODULE_ID = "stepper_motor"
 MODULE_NAME = "步进电机选型"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "stepper_motor.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "stepper_motor.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "stepper_motor.report.1.0.1"
 
 DISCLAIMER = (
     "本结果是基于刚性传动、恒加速度和单一稳态负载转矩的步进电机初选，不构成电机或驱动器采购放行依据。"

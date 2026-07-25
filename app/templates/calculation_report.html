@@ -2,12 +2,16 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#102a43">
   <title>{{ report.title }}｜{{ report.calculation_id }}</title>
-  <link rel="stylesheet" href="/static/report.css?v=20260724.4">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/report.css?v=20260725.1">
 </head>
 <body>
-  <main>
+  <a class="skip-link no-print" href="#report-main">跳到报告内容</a>
+  <main id="report-main">
     <header class="report-header">
       <p class="eyebrow">MECHANICAL DESIGN CALCULATION</p>
       <h1>{{ report.title }}</h1>
@@ -22,6 +26,14 @@
         <div><dt>报告模板版本</dt><dd>{{ report.report_template_version }}</dd></div>
         <div><dt>计算时间（UTC）</dt><dd>{{ report.calculation_created_at }}</dd></div>
         <div><dt>状态</dt><dd>{{ report.status_label or report.status }}</dd></div>
+        <div>
+          <dt>工程发布状态</dt>
+          <dd>
+            <span class="report-release report-release--{{ report.release_status }}">
+              {{ report.release_status_label }}（{{ report.release_status }}）
+            </span>
+          </dd>
+        </div>
       </dl>
     </header>
 
@@ -46,11 +58,12 @@
       <h2>关键结果</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>项目</th><th>值</th><th>单位</th><th>等级</th><th>公式</th></tr></thead>
+          <caption class="sr-only">关键结果</caption>
+          <thead><tr><th scope="col">项目</th><th scope="col">值</th><th scope="col">单位</th><th scope="col">等级</th><th scope="col">公式</th></tr></thead>
           <tbody>
           {% for item in report.result_rows %}
             <tr>
-              <td>{{ item.label }}</td>
+              <th scope="row">{{ item.label }}</th>
               <td>{{ item.display_value }}</td>
               <td>{{ item.unit }}</td>
               <td>{{ item.classification_label or item.classification }}</td>
@@ -66,9 +79,9 @@
     <section>
       <h2>用户原始输入</h2>
       <div class="table-wrap">
-        <table><thead><tr><th>字段</th><th>值</th></tr></thead><tbody>
+        <table><caption class="sr-only">用户原始输入</caption><thead><tr><th scope="col">字段</th><th scope="col">值</th></tr></thead><tbody>
         {% for item in report.original_inputs %}
-          <tr><td>{{ item.label }}</td><td>{{ item.display_value }}</td></tr>
+          <tr><th scope="row">{{ item.label }}</th><td>{{ item.display_value }}</td></tr>
         {% endfor %}
         </tbody></table>
       </div>
@@ -77,9 +90,9 @@
     <section>
       <h2>SI 标准化输入</h2>
       <div class="table-wrap">
-        <table><thead><tr><th>字段</th><th>值</th></tr></thead><tbody>
+        <table><caption class="sr-only">SI 标准化输入</caption><thead><tr><th scope="col">字段</th><th scope="col">值</th></tr></thead><tbody>
         {% for item in report.si_inputs %}
-          <tr><td>{{ item.label }}</td><td>{{ item.display_value }}</td></tr>
+          <tr><th scope="row">{{ item.label }}</th><td>{{ item.display_value }}</td></tr>
         {% endfor %}
         </tbody></table>
       </div>
@@ -90,11 +103,12 @@
       <h2>逐层容绳量</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>层</th><th>中心直径 m</th><th>每圈长度 m</th><th>完整圈</th><th>可用圈</th><th>使用长度 m</th><th>累计使用 m</th></tr></thead>
+          <caption class="sr-only">逐层容绳量</caption>
+          <thead><tr><th scope="col">层</th><th scope="col">中心直径 m</th><th scope="col">每圈长度 m</th><th scope="col">完整圈</th><th scope="col">可用圈</th><th scope="col">使用长度 m</th><th scope="col">累计使用 m</th></tr></thead>
           <tbody>
           {% for layer in report.layer_rows %}
             <tr>
-              <td>{{ layer.layer_number }}</td>
+              <th scope="row">{{ layer.layer_number }}</th>
               <td>{{ layer.center_diameter_m }}</td>
               <td>{{ layer.turn_length_m }}</td>
               <td>{{ layer.full_turns }}</td>

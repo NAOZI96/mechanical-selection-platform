@@ -22,7 +22,7 @@ MODULE_ID = "gear_drive"
 MODULE_NAME = "齿轮传动设计"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "gear_drive.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "gear_drive.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "gear_drive.report.1.0.1"
 
 DISCLAIMER = (
     "本结果限于用户给定模数、齿数、压力角、输入工况和效率下的标准直齿外啮合基础几何与名义啮合力。"

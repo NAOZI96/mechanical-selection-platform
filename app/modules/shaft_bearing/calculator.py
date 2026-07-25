@@ -22,7 +22,7 @@ MODULE_ID = "shaft_bearing"
 MODULE_NAME = "轴与轴承初选"
 MODULE_VERSION = "1.0.0"
 CALCULATION_MODEL_VERSION = "shaft_bearing.calc.1.0.0"
-REPORT_TEMPLATE_VERSION = "shaft_bearing.report.1.0.0"
+REPORT_TEMPLATE_VERSION = "shaft_bearing.report.1.0.1"
 
 DISCLAIMER = (
     "轴承结果仅按用户指定的 X、Y、C、p 和恒定等效载荷计算基本额定 L10 寿命；"

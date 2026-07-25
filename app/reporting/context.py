@@ -10,7 +10,7 @@ from typing import Any
 
 from .models import ReportContext, ReportInputRow, ReportResultRow
 
-REPORT_CONTEXT_SCHEMA_VERSION = 3
+REPORT_CONTEXT_SCHEMA_VERSION = 4
 
 _CLASSIFICATION_LABELS = {
     "calculated": "理论计算值",
@@ -23,6 +23,13 @@ _STATUS_LABELS = {
     "completed": "计算完成",
     "completed_with_warnings": "计算完成（有警告）",
     "failed": "计算失败",
+}
+
+_RELEASE_STATUS_LABELS = {
+    "legacy_unknown": "未记录（按内部测试边界处理）",
+    "internal_testing": "内部测试",
+    "engineering_review": "工程审核中",
+    "released": "工程已放行",
 }
 
 _SOURCE_STATUS_LABELS = {
@@ -230,6 +237,7 @@ def build_report_context(
     """Build the persisted DTO from one already-calculated immutable snapshot."""
 
     results = _mapping(snapshot, "results")
+    release_status = str(snapshot.get("release_status") or "legacy_unknown")
     result_rows: list[ReportResultRow] = []
     for key, item in results.items():
         if not isinstance(item, Mapping) or "classification" not in item:
@@ -282,6 +290,11 @@ def build_report_context(
         calculation_model_version=str(snapshot["calculation_model_version"]),
         report_template_version=str(snapshot["report_template_version"]),
         calculation_created_at=str(snapshot["created_at"]),
+        release_status=release_status,
+        release_status_label=_RELEASE_STATUS_LABELS.get(
+            release_status,
+            release_status,
+        ),
         status=str(snapshot["status"]),
         status_label=_STATUS_LABELS.get(str(snapshot["status"]), str(snapshot["status"])),
         original_inputs=_input_rows(_mapping(snapshot, "input_original")),
