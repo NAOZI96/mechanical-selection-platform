@@ -2,9 +2,9 @@
 
 自动化证据索引见 [`FORMULA_TEST_MATRIX.md`](FORMULA_TEST_MATRIX.md)。矩阵通过只证明软件与本规格一致，不替代本规格及参数来源的机械工程签字。
 
-文档版本：0.3.0
+文档版本：0.3.1
 
-计算模型版本：`winch_drum.calc.1.2.0`
+计算模型版本：`winch_drum.calc.1.2.1`
 状态：C-01～C-09 项目决策已冻结，Phase 2R 一致性复审已完成
 
 ## C-01～C-07 冻结决策（与历史段落冲突时以本节为准）
@@ -13,7 +13,7 @@
 - C-02：`B_effective=B-2*b_side>0`。实际可用槽数优先；其次实际槽距；否则 `p=pitch_factor*d`、`N=floor(B_effective/p)`。同时输出理论圈数、最终圈数和依据。
 - C-03：死圈允许 2～8，默认 3。`L_required_total=L_target+L_dead_wrap+L_termination_allowance`；死圈按第一层绳中心螺旋圈长计算；`L_available_work=L_total_capacity-L_dead_wrap-L_termination_allowance`。目标工作绳长不含死圈和安装预留。
 - C-04：允许绳径 4～64 mm，主要验证 6～32 mm。`D=D_core+d`、`D/d=(D_core+d)/d`，默认比值 20 反求 `D_core=(20-1)*d`。实际 `D/d` 低于当前 `minimum_dd_ratio` 时产生带实际比值、要求直径和建议芯径的 `W_DD_RATIO_BELOW_MINIMUM` 高风险警告，不得输出整机“设计合格”结论。默认比值和未确认标准条款分别产生 `W_DD_PROJECT_DEFAULT`、`W_STANDARD_CLAUSE_NOT_CONFIRMED`。
-- C-05：`service_factor=1.25` 仅在额定拉力输入时形成一次 `F_design`；设计/最大拉力输入时实际作用值为 1。`pitch_factor=1.10` 只用于理论节距。`brake_safety_factor=1.50` 只用于一次静态保持制动。
+- C-05：`service_factor=1.25` 仅在额定拉力输入时形成一次 `F_design`；设计/最大拉力输入时实际作用值为 1。`pitch_factor=1.10` 只用于理论节距。`brake_safety_factor=1.50` 只用于一次静态保持制动。上述值只有在与冻结值一致时才可记为 `project_default`；自定义值必须显式提交非默认来源。
 - C-06：满卷为静态最不利半径，`T_low=F_design*r_full*brake_safety_factor`，`T_high=T_low*η_back/i`。只有显式允许时才可用正向效率近似；自锁、蜗杆、不可逆或禁止反驱机构不得近似。动态、应急与热容量不作合格结论。
 - C-07：`P_drum=F_design*v_drum`、`P_required=P_drum/η_forward`，不再乘使用系数。从集中功率系列向上选档；超过 315 kW 返回超范围。选档不代表启动、堵转、惯量、变频低速、认证或热容量合格。
 
@@ -43,18 +43,24 @@
 | `rope_diameter_mm` | `d` | mm | m | 无 | `> 0` | 仅几何用途；绳型/结构缺失会触发警告。 |
 | `rope_speed_m_per_min` | `v` | m/min | m/s | 无 | `> 0` | 卷筒处目标绳速。 |
 | `target_rope_capacity_m` | `L_t` | m | m | 无 | `> 0` | 不自动增加死圈或外部余绳。 |
-| `service_factor` | `K_s` | — | — | 无 | `>= 1` | 驱动设计拉力使用；来源须确认。 |
+| `service_factor` | `K_s` | — | — | `1.25` | `>= 1` | 项目默认只在来源为 `project_default` 时有效；驱动设计拉力使用。 |
 | `total_efficiency` | `η` | — | — | 无 | `0 < η <= 1` | 正向：电机至卷筒。 |
 | `motor_rated_speed_rpm` | `n_m` | r/min | rad/s 可派生 | 无 | `> 0` | 用于速比参考。 |
 | `motor_type` | — | 文本/枚举 | — | 无 | 1–64 字符 | 仅提示，不映射系数。 |
 | `drum_core_diameter_mm` | `D_c` | mm | m | `null` | 若有则 `> 0` | 裸卷筒外径；非绳中心线直径。 |
 | `drum_face_length_mm` | `B` | mm | m | `null` | 若有则 `> 0` | 两法兰内侧总轴向排绳面长度，包含余量。 |
 | `max_layers` | `z_max` | 层 | — | 无 | 整数 `>= 1` | 产品上限建议 100，防止滥用和资源异常。 |
-| `pitch_factor` | `K_p` | — | — | 无 | `>= 1` | `p=K_p d`；具体值需结合绳槽/排绳确认。 |
+| `pitch_factor` | `K_p` | — | — | `1.10` | `>= 1` | 项目默认只在来源为 `project_default` 时有效；`p=K_p d`，具体值需结合绳槽/排绳确认。 |
 | `side_margin_mm` | `b` | mm/侧 | m | 无 | `>= 0` | 两侧各扣除一次。 |
 | `reeving_ratio` | `M` | — | — | 无 | `>= 1` | 可允许小数但 UI 默认整数；仅换算提示。 |
-| `brake_safety_factor` | `K_b` | — | — | 无 | `>= 1` | 静态保持制动使用。 |
+| `pulley_efficiency` | `η_pulley` | — | — | `0.95` | `0 < η_pulley <= 1` | 载荷端拉力换算使用；项目默认来源未确认时显示警告。 |
+| `brake_safety_factor` | `K_b` | — | — | `1.50` | `>= 1` | 项目默认只在来源为 `project_default` 时有效；静态保持制动使用。 |
 | `duty_class` | — | 文本/枚举 | — | 无 | 1–64 字符 | 仅提示，不自动映射 `K_s`。 |
+| `motor_duty_type` | — | 文本/枚举 | — | `S3` | 1–32 字符 | 仅记录；项目默认来源与值必须匹配，不自动映射系数。 |
+| `duty_cycle_percent` | — | % | — | `40` | `0 < value <= 100` | 仅记录；不据此声称热容量合格。 |
+| `starts_per_hour` | — | 次/h | — | `60` | 严格整数 `0..10000` | 仅记录；不据此声称启动能力合格。 |
+| `supply_voltage` | — | V | — | `380` | `> 0` | 仅记录项目供电条件。 |
+| `supply_frequency` | — | Hz | — | `50` | `> 0` | 仅记录项目供电条件。 |
 | `approved_core_ratio` | `R_Dd` | — | — | `null` | 若有则 `> 1` | 可追溯的标准、制造商或项目批准值优先。 |
 | `minimum_dd_ratio` | `R_Dd,project` | — | — | `20` | `> 1` | C-04 冻结的项目初选值；只生成 preliminary 结果并显著警告，不声称标准合规。 |
 | `dead_wraps` / `dead_wrap_count` | `N_dead` | 圈 | — | `3` | 严格整数 `2..8`，且不超过实际/理论可用圈数 | 只从第一层工作绳容量中扣除。 |
@@ -68,6 +74,10 @@
 | `motor_power_series_id` | — | 枚举 | — | `project_default_iec_kw` | 当前只允许冻结系列 ID | 禁止记录未执行的自定义系列。 |
 
 建议 UI 软边界仅用于异常提示，不作为工程标准：数值超过产品配置上限时返回“超出已验证范围”，而非声称不合格。硬边界之外，还需满足：`B - 2b > 0`、可用宽度至少容纳 1 圈、计算层数不超过 `z_max`。
+
+来源与值必须成对校验。当 `assumption_sources` 中对应字段为 `project_default` 时，`service_factor`、`pitch_factor`、`brake_safety_factor`、`pulley_efficiency`、`dead_wrap_count`、`minimum_dd_ratio`、`motor_duty_type`、`duty_cycle_percent`、`starts_per_hour`、`supply_voltage`、`supply_frequency` 必须分别等于 `1.25`、`1.10`、`1.50`、`0.95`、`3`、`20`、`S3`、`40`、`60`、`380`、`50`。完全省略 `assumption_sources` 时采用这些显式冻结默认；任一值被修改后仍标为项目默认时返回 422，并要求提交字段允许的用户、待确认、标准或制造商来源。`approved_core_ratio` 和 `backdrive_efficiency` 没有项目数值默认，任何情况下都不得标记为 `project_default`。禁止服务根据自定义数值自动猜测来源。
+
+`winch_drum.calc.1.2.1` 只收紧上述输入来源语义与校验边界；C-01～C-09 公式、SI 换算和金样数值均未改变。
 
 ## 3. SI 规范化
 

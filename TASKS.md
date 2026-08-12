@@ -18,7 +18,7 @@
 - [x] 将结果分为 calculated / preliminary / review_required / informational。
 - [x] 检查当前输入充分性和潜在重复安全系数。
 - [x] 给出逐项验收标准与低资源控制措施。
-- [x] 完成跨文档一致性检查；当前模型版本统一为 `winch_drum.calc.1.2.0`，C-01～C-09 字段、状态和报告同源规则已同步。
+- [x] 完成跨文档一致性检查；当前模型版本统一为 `winch_drum.calc.1.2.1`，C-01～C-09 公式数值不变，输入来源边界、状态和报告同源规则已同步。
 - [x] 拉力/速度位置改为显式输入并在计算前统一换算到卷筒绳端。
 - [x] 卷筒面长冻结为两法兰内侧总面长，两侧余量各扣除一次。
 - [x] 固定死圈冻结为严格 2～8 圈、项目初选默认 3 圈并保存来源。
@@ -127,7 +127,7 @@
 ### Phase 5 出口门禁
 
 - [x] 已开放与规划状态不会混淆，主页只把已注册且配置页面模板的模块作为可进入工具。
-- [x] 现有绞车计算、快照、HTML/PDF 报告和计算模型版本保持不变。
+- [x] Phase 5 当时保持既有绞车计算、快照、HTML/PDF 报告和计算模型版本不变；后续版本变更见相应阶段记录。
 - [x] 未引入新框架、数据库、常驻服务或工程公式。
 
 ## Phase 6：计算页状态与交互升级
@@ -136,6 +136,12 @@
 - [x] 增加结果区忙碌状态、无障碍状态通知、返回参数入口，并缩短空白等待区在桌面和移动端的无效占高。
 - [x] 增加页面状态契约回归测试，完成单元、输入边界、公式回归、API、PDF、静态检查和浏览器交互验证。
 - [x] Phase 6 仅调整展示与交互状态，当时未修改工程公式、SI 输入口径、快照结构、计算模型版本或报告模型版本；后续 Phase 8 的发布状态快照治理单独版本化。
+
+### Phase 6 后续硬化（2026-08）
+
+- [x] 修改任一表单参数后立即将旧快照标记失效并隐藏报告链接；请求期间锁定输入，响应落地前核对提交时表单与返回快照，防止新参数与旧结果错配。
+- [x] `winch_drum` 对十一个项目默认值执行值/来源交叉校验；自定义值以及无数值默认的 D/d 批准值、反向效率不得伪标 `project_default`。
+- [x] 本轮没有修改 C-01～C-09 公式或 SI 口径；因输入来源语义和校验边界改变，`winch_drum` 计算模型版本升级为 `winch_drum.calc.1.2.1`。
 
 ### Phase 6 后续门禁
 
@@ -174,7 +180,7 @@
 - [x] 统一 CSP、`X-Content-Type-Options`、`Referrer-Policy`、`X-Frame-Options` 和 `Permissions-Policy`；HTTPS 公共根地址下启用 HSTS。
 - [x] 冻结缓存策略：`/static/*` 为 `public, max-age=86400`，计算/报告路径为 `no-store` 且禁止索引，其余页面为 `no-cache`。
 - [x] 新增可空迁移 `005_calculation_release_status.sql`，将计算时的 `release_status` 持久化；旧行空值读取为 `legacy_unknown`，不按当前注册表状态回填。
-- [x] 新计算升级为 snapshot schema v4 / report context schema v4；报告上下文保存发布状态及中文标签，工程公式、SI 输入口径和全部 `calculation_model_version` 保持不变。
+- [x] Phase 8 当时将新计算升级为 snapshot schema v4 / report context schema v4；报告上下文保存发布状态及中文标签，且该阶段没有改变工程公式、SI 输入口径或 `calculation_model_version`。后续 2026-08 来源边界硬化单独升级了 `winch_drum` 计算模型。
 - [x] 报告模板升级为 `winch_drum.report.1.2.1` 与八模块 `*.report.1.0.1`，使新增发布状态展示与旧模板缓存明确隔离。
 - [x] 冻结旧报告策略：通过相对路径、大小与 SHA-256 校验的遗留缓存 PDF 可继续下载并带 `legacy_unknown` 告警；无有效缓存的旧快照返回 `409 LEGACY_RELEASE_STATUS_MISSING`，不得用当前发布状态重建。
 - [x] 启动时检查固定 Noto Sans SC 字体及报告/临时目录可写；`/health/ready` 只检查注册表、已应用迁移和报告运行目录/字体存在，不执行完整数据库完整性检查或 PDF 试渲染。

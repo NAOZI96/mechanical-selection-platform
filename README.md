@@ -127,8 +127,17 @@ python -m venv .venv
 node --check app/static/calculator.js
 node --check app/static/engineering-calculator.js
 node --check app/static/home-animation.js
+node --check scripts/verify_calculation_state.mjs
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+安装 Chrome 后，可执行不依赖第三方 Node 包的隔离快照状态实浏：
+
+```powershell
+node scripts/verify_calculation_state.mjs
+```
+
+该脚本自动用临时 SQLite、报告目录和随机回环端口启动/销毁隔离服务，在 Headless Chrome 中复现“计算 A 后修改为 B”、错误成功响应和请求失败竞态，验证金样完整重置、旧快照/报告链接失效、请求期间表单锁定及响应/输入配对，不向常用数据库写测试快照。Node.js 需支持内置 `WebSocket`（CI 使用 Node 22）；若 Chrome 或 Python 不在常见路径，分别通过 `CHROME_PATH`、`DESIGN_AGENT_PYTHON` 指定。仅在明确接受写入目标服务测试记录时，才可使用 `node scripts/verify_calculation_state.mjs <URL> --allow-persistent-test-data`。
 
 当前已实现：
 
@@ -152,6 +161,8 @@ node --check app/static/home-animation.js
 - 旧库中发布状态为空的记录读取为 `legacy_unknown`：HTML 仍按内部测试边界展示；经路径、大小和 SHA-256 校验的旧缓存 PDF 仍可下载并带遗留告警，未缓存或缓存失效的旧 PDF 不允许用当前状态重建并返回 `409 LEGACY_RELEASE_STATUS_MISSING`；
 - 非 root、只读根文件系统、单 worker、回环端口和资源限制的 Docker Compose 候选；
 - 带字段帮助、来源状态、高等级警告、结果等级和逐层表的中文计算页面；右侧等待、计算中和结果状态互斥，计算完成后不会残留等待提示；
+- 计算后修改参数会立即隐藏旧快照与报告链接，请求期间锁定表单并校验提交时输入；不会把新参数与旧结果组合显示或恢复；
+- `winch_drum` 对十一个项目默认值执行值/来源交叉校验，并禁止无数值默认的 D/d 批准值和反向效率伪标 `project_default`；不生成伪来源快照；
 - 结果页明确区分“当前方案不可行”“参数存在高风险”和待校核项，不将局部容量满足表述为整机合格；
 - 差异化品牌、首页工程定位、canonical、Open Graph、favicon、`robots.txt`、`sitemap.xml`、HEAD 和 HTML 404；
 - 绳索、载荷和环境记录采用中文默认值及可自定义的中文备选词库；
@@ -163,7 +174,7 @@ node --check app/static/home-animation.js
 
 目标 Docker 主机基线：1000 次计算 p95 23.895 ms，20 份 PDF p95 1.108 s，5 并发仍为 1×`200` + 4×`429`；Web cgroup 峰值 186,097,664 B、交换区 0、无 OOM/重启，在线备份与隔离恢复通过。完整证据见 [Phase 4 验收记录](docs/PHASE4_ACCEPTANCE.md)。
 
-以上目标机基线来自既有 `winch_drum` 部署，不代表当前九模块候选版已经远程部署或完成目标机资源复验。当前候选版新增可空迁移 `005_calculation_release_status.sql`，部署前必须先做 SQLite 在线备份并受控应用迁移；没有新增常驻服务，工程公式与计算模型版本未改变。
+以上目标机基线来自既有 `winch_drum` 部署，不代表当前九模块候选版已经远程部署或完成目标机资源复验。当前候选版新增可空迁移 `005_calculation_release_status.sql`，部署前必须先做 SQLite 在线备份并受控应用迁移；没有新增常驻服务，工程公式与 SI 口径未变，但来源校验边界已使 `winch_drum` 计算模型升级为 `winch_drum.calc.1.2.1`。
 
 ## 免责声明
 

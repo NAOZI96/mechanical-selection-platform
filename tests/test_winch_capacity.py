@@ -7,6 +7,18 @@ from app.modules.winch_drum.schema import ResultClassification, WarningCode, Win
 
 
 def make_input(**overrides: object) -> WinchDrumInput:
+    source_overrides = overrides.pop("assumption_sources", {})
+    if not isinstance(source_overrides, dict):
+        raise TypeError("assumption_sources override must be a dictionary")
+    assumption_sources: dict[str, object] = {
+        "service_factor": "user_input",
+        "pitch_factor": "user_input",
+        "brake_safety_factor": "user_input",
+        "pulley_efficiency": "user_input",
+        "dead_wrap_count": "user_input",
+        "minimum_dd_ratio": "user_input",
+    }
+    assumption_sources.update(source_overrides)
     values: dict[str, object] = {
         "rated_line_pull_kn": 100,
         "rope_diameter_mm": 20,
@@ -27,6 +39,7 @@ def make_input(**overrides: object) -> WinchDrumInput:
         "pulley_efficiency": 1,
         "brake_safety_factor": 1.5,
         "duty_class": "测试工况，仅提示",
+        "assumption_sources": assumption_sources,
     }
     values.update(overrides)
     return WinchDrumInput(**values)
@@ -146,6 +159,7 @@ class WinchCapacityTests(unittest.TestCase):
                 drum_core_diameter_mm=None,
                 drum_face_length_mm=None,
                 approved_core_ratio=None,
+                assumption_sources={"minimum_dd_ratio": "project_default"},
             )
         )
         self.assertAlmostEqual(result.used_or_suggested_core_diameter_m.value or 0, 0.38)

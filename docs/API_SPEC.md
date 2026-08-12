@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.5.0
+文档版本：0.5.1
 API 版本：`v1`  
 已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
@@ -93,16 +93,31 @@ API 版本：`v1`
     "dead_wraps": 3,
     "backdrive_efficiency": null,
     "allow_forward_efficiency_as_reverse_approx": false,
-    "assumption_sources": {
-      "service_factor": "pending_confirmation",
-      "pitch_factor": "pending_confirmation",
-      "brake_safety_factor": "pending_confirmation"
-    }
+    "motor_duty_type": "S3",
+    "duty_cycle_percent": 40,
+    "starts_per_hour": 60,
+    "supply_voltage": 380,
+    "supply_frequency": 50
+  },
+  "assumption_sources": {
+    "service_factor": "pending_confirmation",
+    "pitch_factor": "pending_confirmation",
+    "brake_safety_factor": "pending_confirmation",
+    "pulley_efficiency": "user_input",
+    "dead_wrap_count": "project_default",
+    "minimum_dd_ratio": "project_default",
+    "motor_duty_type": "project_default",
+    "duty_cycle_percent": "project_default",
+    "starts_per_hour": "project_default",
+    "supply_voltage": "project_default",
+    "supply_frequency": "project_default"
   }
 }
 ```
 
 示例数值只用于说明 JSON 形状，不是项目推荐默认值。
+
+`assumption_sources` 的规范位置是请求顶层，与网页工作台一致。兼容期仍接受只在 `input` 内提交一次的旧请求；若顶层和 `input` 内同时出现，则返回 422，禁止静默覆盖冲突来源。
 
 响应 `201 Created`：
 
@@ -110,8 +125,8 @@ API 版本：`v1`
 {
   "calculation_id": "uuid",
   "module_id": "winch_drum",
-  "module_version": "1.2.0",
-  "calculation_model_version": "winch_drum.calc.1.2.0",
+  "module_version": "1.2.1",
+  "calculation_model_version": "winch_drum.calc.1.2.1",
   "release_status": "engineering_review",
   "status": "completed_with_warnings",
   "created_at": "2026-07-22T00:00:00Z",
@@ -188,6 +203,8 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 | 其他页面/API（含 `/docs`） | `no-cache` | 客户端可保存但每次必须重新验证。 |
 
 ## 3. 校验规则与错误
+
+`winch_drum` 对十一个项目默认值执行交叉校验：`service_factor=1.25`、`pitch_factor=1.10`、`brake_safety_factor=1.50`、`pulley_efficiency=0.95`、`dead_wrap_count=3`、`minimum_dd_ratio=20`、`motor_duty_type=S3`、`duty_cycle_percent=40`、`starts_per_hour=60`、`supply_voltage=380` 和 `supply_frequency=50`。完全省略 `assumption_sources` 时，模型按上述冻结项目默认记录来源；调用方修改任一值时必须同时显式提交该字段的非默认来源，不能继续标记为 `project_default`。`approved_core_ratio` 与 `backdrive_efficiency` 没有项目数值默认，来源不得标记为 `project_default`。服务只应用显式模型默认，不会根据自定义数值猜测来源。
 
 ### 3.1 HTTP 状态
 

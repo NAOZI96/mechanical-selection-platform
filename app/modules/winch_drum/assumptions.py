@@ -10,8 +10,8 @@ from .schema import AssumptionRecord, SourceStatus, WinchDrumSIInput
 
 MODULE_ID = "winch_drum"
 MODULE_NAME = "绞车与卷筒选型助手"
-MODULE_VERSION = "1.2.0"
-CALCULATION_MODEL_VERSION = "winch_drum.calc.1.2.0"
+MODULE_VERSION = "1.2.1"
+CALCULATION_MODEL_VERSION = "winch_drum.calc.1.2.1"
 REPORT_TEMPLATE_VERSION = "winch_drum.report.1.2.1"
 
 MOTOR_POWER_SERIES_KW = (
@@ -154,7 +154,41 @@ def build_assumptions(data: WinchDrumSIInput, geometry_optimized: bool) -> tuple
                 key="minimum_dd_ratio",
                 value=data.minimum_dd_ratio,
                 source_status=data.assumption_sources.minimum_dd_ratio,
-                note="项目初选默认值，不代表标准强制值。",
+                note="D/d 比的当前输入与来源；只有 project_default 表示项目初选默认，不自动代表标准强制值。",
+            ),
+            AssumptionRecord(
+                key="motor_duty_type",
+                value=data.motor_duty_type,
+                source_status=data.assumption_sources.motor_duty_type,
+                note="仅记录工作制输入，不自动映射使用系数或作热容量合格判断。",
+            ),
+            AssumptionRecord(
+                key="duty_cycle_percent",
+                value=data.duty_cycle_percent,
+                unit="%",
+                source_status=data.assumption_sources.duty_cycle_percent,
+                note="仅记录负载持续率输入，电机热容量仍待专项校核。",
+            ),
+            AssumptionRecord(
+                key="starts_per_hour",
+                value=data.starts_per_hour,
+                unit="1/h",
+                source_status=data.assumption_sources.starts_per_hour,
+                note="仅记录每小时启动次数，启动能力和热容量仍待专项校核。",
+            ),
+            AssumptionRecord(
+                key="supply_voltage",
+                value=data.supply_voltage,
+                unit="V",
+                source_status=data.assumption_sources.supply_voltage,
+                note="仅记录项目供电条件，不代表电机或电气系统已完成选型。",
+            ),
+            AssumptionRecord(
+                key="supply_frequency",
+                value=data.supply_frequency,
+                unit="Hz",
+                source_status=data.assumption_sources.supply_frequency,
+                note="仅记录项目供电条件，不代表电机或电气系统已完成选型。",
             ),
             AssumptionRecord(
                 key="motor_power_series_id",

@@ -37,7 +37,20 @@ def valid_payload() -> dict[str, object]:
             "dead_wraps": 3,
             "backdrive_efficiency": None,
             "allow_forward_efficiency_as_reverse_approx": False,
-        }
+        },
+        "assumption_sources": {
+            "service_factor": "user_input",
+            "pitch_factor": "user_input",
+            "brake_safety_factor": "user_input",
+            "pulley_efficiency": "user_input",
+            "dead_wrap_count": "user_input",
+            "minimum_dd_ratio": "user_input",
+            "motor_duty_type": "project_default",
+            "duty_cycle_percent": "project_default",
+            "starts_per_hour": "project_default",
+            "supply_voltage": "project_default",
+            "supply_frequency": "project_default",
+        },
     }
 
 
@@ -56,6 +69,7 @@ class ApiTests(unittest.TestCase):
     def test_health_module_discovery_and_schema(self) -> None:
         self.assertEqual(self.client.get("/health/live").json(), {"status": "live"})
         self.assertEqual(self.client.get("/health/ready").json(), {"status": "ready"})
+        self.assertEqual(self.client.get("/openapi.json").json()["info"]["version"], "0.5.1")
         modules = self.client.get("/api/v1/modules").json()
         self.assertEqual(
             {module["module_id"] for module in modules},
@@ -180,7 +194,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
         self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
-        self.assertIn('src="/static/calculator.js?v=20260725.1"', response.text)
+        self.assertIn('src="/static/calculator.js?v=20260812.1"', response.text)
         self.assertIn('href="/#modules">模块中心</a>', response.text)
         script = self.client.get("/static/calculator.js")
         stylesheet = self.client.get("/static/app.css")
@@ -196,6 +210,10 @@ class ApiTests(unittest.TestCase):
         self.assertIn("清空参数", response.text)
         self.assertIn("restoreSessionState()", script.text)
         self.assertIn("renderSnapshot(state.snapshot, {focus: false})", script.text)
+        self.assertIn('setResultState("dirty")', script.text)
+        self.assertIn("snapshotForm", script.text)
+        self.assertIn("setLoading(true)", script.text)
+        self.assertIn('control.dataset.requestLock = "true"', script.text)
         self.assertIn("当前浏览器标签页访问期间自动保留", response.text)
         self.assertIn("[hidden] { display: none !important; }", stylesheet.text)
         self.assertIn('--font-display: "Segoe UI Variable Display"', stylesheet.text)
@@ -239,6 +257,11 @@ class ApiTests(unittest.TestCase):
             "source_pulley_efficiency",
             "source_dead_wrap_count",
             "source_backdrive_efficiency",
+            "source_motor_duty_type",
+            "source_duty_cycle_percent",
+            "source_starts_per_hour",
+            "source_supply_voltage",
+            "source_supply_frequency",
         ):
             self.assertIn(source_field, form_names)
 
@@ -252,11 +275,21 @@ class ApiTests(unittest.TestCase):
         calculation_id = created["calculation_id"]
         fetched = self.client.get(f"/api/v1/calculations/{calculation_id}").json()
         self.assertEqual(fetched, created)
+        self.assertEqual(fetched["module_version"], "1.2.1")
         self.assertEqual(fetched["results"]["design_line_pull_n"]["value"], 120000.0)
         report = self.client.get(f"/calculations/{calculation_id}/report")
         self.assertEqual(report.status_code, 200)
         self.assertIn(">120000<", report.text)
-        self.assertIn("winch_drum.calc.1.2.0", report.text)
+        self.assertIn("winch_drum.calc.1.2.1", report.text)
+        assumption_sources = {item["key"]: item["source_status"] for item in fetched["assumptions"]}
+        for key in (
+            "motor_duty_type",
+            "duty_cycle_percent",
+            "starts_per_hour",
+            "supply_voltage",
+            "supply_frequency",
+        ):
+            self.assertEqual(assumption_sources[key], "project_default")
 
     def test_report_actions_chinese_labels_custom_values_and_formula_layout(self) -> None:
         payload = valid_payload()
@@ -312,6 +345,38 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(overflow_response.status_code, 422)
 
+        missing_sources = valid_payload()
+        missing_sources.pop("assumption_sources")
+        missing_source_response = self.client.post(
+            "/api/v1/modules/winch_drum/calculations",
+            json=missing_sources,
+        )
+        self.assertEqual(missing_source_response.status_code, 422)
+        details = missing_source_response.json()["error"]["details"]
+        self.assertTrue(any("必须明确选择" in detail["message"] for detail in details))
+
+        nested_sources = valid_payload()
+        nested_input = nested_sources["input"]
+        self.assertIsInstance(nested_input, dict)
+        nested_input["assumption_sources"] = nested_sources.pop("assumption_sources")  # type: ignore[index]
+        self.assertEqual(
+            self.client.post("/api/v1/modules/winch_drum/calculations", json=nested_sources).status_code,
+            201,
+        )
+
+        conflicting_sources = valid_payload()
+        conflicting_input = conflicting_sources["input"]
+        self.assertIsInstance(conflicting_input, dict)
+        conflicting_input["assumption_sources"] = dict(  # type: ignore[index]
+            conflicting_sources["assumption_sources"]  # type: ignore[arg-type]
+        )
+        conflict_response = self.client.post(
+            "/api/v1/modules/winch_drum/calculations",
+            json=conflicting_sources,
+        )
+        self.assertEqual(conflict_response.status_code, 422)
+        self.assertIn("不得同时", conflict_response.json()["error"]["details"][0]["message"])
+
     def test_pdf_endpoint_generates_and_reuses_a_valid_chinese_report(self) -> None:
         created = self.client.post(
             "/api/v1/modules/winch_drum/calculations",
@@ -328,7 +393,7 @@ class ApiTests(unittest.TestCase):
         reader = PdfReader(pdf_path)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         self.assertIn("绞车与卷筒选型助手计算报告", text)
-        self.assertIn("winch_drum.calc.1.2.0", text)
+        self.assertIn("winch_drum.calc.1.2.1", text)
         self.assertIn("winch_drum.report.1.2.1", text)
         self.assertIn("engineering_review", text)
         self.assertIn("120000", text)

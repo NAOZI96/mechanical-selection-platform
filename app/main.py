@@ -44,7 +44,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
 
     app = FastAPI(
         title="机械智选 · Mechanical Selection Platform",
-        version="0.5.0",
+        version="0.5.1",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -329,6 +329,17 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
             return _validation_error(
                 request.state.request_id,
                 [{"loc": ("body", "input"), "msg": "必须提供 input 对象", "type": "missing"}],
+            )
+        if "assumption_sources" in payload and "assumption_sources" in raw_input:
+            return _validation_error(
+                request.state.request_id,
+                [
+                    {
+                        "loc": ("body", "assumption_sources"),
+                        "msg": "assumption_sources 不得同时出现在请求顶层和 input 内",
+                        "type": "value_error",
+                    }
+                ],
             )
         if "assumption_sources" in payload:
             raw_input = {**raw_input, "assumption_sources": payload["assumption_sources"]}

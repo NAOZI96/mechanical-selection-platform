@@ -45,7 +45,7 @@ class ExpandedModuleApiTests(unittest.TestCase):
                 self.assertIn("内部测试（internal_testing）", page.text)
                 self.assertIn('href="/static/app.css?v=20260725.4"', page.text)
                 self.assertIn('href="/static/engineering.css?v=20260725.1"', page.text)
-                self.assertIn('src="/static/engineering-calculator.js?v=20260725.2"', page.text)
+                self.assertIn('src="/static/engineering-calculator.js?v=20260812.1"', page.text)
 
                 schema_response = self.client.get(f"/api/v1/modules/{spec.module_id}/schema")
                 self.assertEqual(schema_response.status_code, 200)
@@ -123,6 +123,10 @@ class ExpandedModuleApiTests(unittest.TestCase):
         self.assertIn("Number.isFinite(numericValue)", script.text)
         self.assertIn("assumptionDisplayLabel(assumption.key)", script.text)
         self.assertIn("uncheckedLabels[value] || value", script.text)
+        self.assertIn('setResultState("dirty")', script.text)
+        self.assertIn("snapshotInput", script.text)
+        self.assertIn("setFormLocked(true)", script.text)
+        self.assertIn('control.dataset.requestLock = "true"', script.text)
 
         cylinder_properties = self.client.get("/api/v1/modules/pneumatic_cylinder/schema").json()["input_schema"][
             "properties"

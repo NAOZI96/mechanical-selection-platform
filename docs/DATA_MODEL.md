@@ -10,7 +10,7 @@
 
 Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。Phase 8 通过通用迁移 `005_calculation_release_status.sql` 增加可空发布状态列：新计算冻结注册表中的当次状态，迁移前旧记录保留 `NULL` 并读取为 `legacy_unknown`，不得按当前注册表回填。
 
-文档版本：0.5.0
+文档版本：0.5.1
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 
@@ -31,7 +31,7 @@ calculation
 | `id` | TEXT | PK | UUID。 |
 | `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`、`transmission_check`、`gear_drive`；由保存时注册模块决定。 |
 | `module_version` | TEXT | NOT NULL | SemVer 字符串。 |
-| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.0`。 |
+| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.1`；旧快照保留其原始版本。 |
 | `release_status` | TEXT | NULL, CHECK | 迁移 `005` 新增；新记录为 `internal_testing` / `engineering_review` / `released`，旧记录允许 `NULL` 并在读取层映射为 `legacy_unknown`。 |
 | `status` | TEXT | NOT NULL, CHECK | `completed` / `completed_with_warnings`。校验失败不建成功记录。 |
 | `input_original_json` | TEXT | NOT NULL | 原始值、显示单位和用户语义选择。 |

@@ -12,6 +12,11 @@ const emptyState = document.querySelector("#engineering-empty");
 const loadingState = document.querySelector("#engineering-loading");
 const resultContent = document.querySelector("#engineering-result-content");
 const resultStatus = document.querySelector("#engineering-result-status");
+const calculateButton = document.querySelector("#engineering-calculate");
+const loadSampleButton = document.querySelector("#engineering-load-sample");
+const clearButton = document.querySelector("#engineering-clear");
+const htmlReportLink = document.querySelector("#engineering-html-report");
+const pdfReportLink = document.querySelector("#engineering-pdf-report");
 const sessionKey = `engineering.${moduleId}.session.v1`;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -195,10 +200,12 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
   const previousState = resultState;
+  let submittedInput = null;
   setResultState("loading");
-  document.querySelector("#engineering-calculate").disabled = true;
+  setFormLocked(true);
   try {
     const input = readInput();
+    submittedInput = cloneJson(input);
     const data = await fetchJson(
       `/api/v1/modules/${encodeURIComponent(moduleId)}/calculations`,
       {
@@ -208,38 +215,49 @@ form?.addEventListener("submit", async (event) => {
       },
       20000,
     );
+    if (!sameJson(readInput(), submittedInput) || !responseMatchesRequest(data, submittedInput)) {
+      discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
+      return;
+    }
     renderSnapshot(data);
-    saveSessionState(input, data);
+    saveSessionState(submittedInput, data, submittedInput);
   } catch (error) {
     if (!error?.details) {
       showFormError(error instanceof Error ? error.message : "无法连接计算服务。");
     }
-    setResultState(previousState);
+    restoreStateAfterFailedRequest(previousState, submittedInput);
   } finally {
-    document.querySelector("#engineering-calculate").disabled = false;
+    setFormLocked(false);
   }
 });
 
-document.querySelector("#engineering-load-sample")?.addEventListener("click", () => {
+loadSampleButton?.addEventListener("click", () => {
+  invalidateCurrentSnapshot();
+  form.reset();
   form.querySelectorAll("[name]").forEach((control) => {
     const sample = Object.hasOwn(exampleInput, control.name)
       ? exampleInput[control.name]
       : control.dataset.sample === undefined
         ? undefined
         : JSON.parse(control.dataset.sample);
-    if (sample === undefined || sample === null) return;
+    if (sample === undefined || sample === null) {
+      if (control.type === "checkbox") control.checked = false;
+      else control.value = "";
+      return;
+    }
     if (control.type === "checkbox") control.checked = Boolean(sample);
     else control.value = formatControlValue(control, sample);
   });
   clearErrors();
-  saveSessionState(readInput(), null);
+  saveSessionState(readInput());
 });
 
-document.querySelector("#engineering-clear")?.addEventListener("click", () => {
+clearButton?.addEventListener("click", () => {
   if (!window.confirm("确认清空当前模块参数和本标签页中的最近结果吗？已保存的报告不会删除。")) return;
   form.reset();
   clearErrors();
   window.sessionStorage.removeItem(sessionKey);
+  clearReportLinks();
   setResultState("idle");
 });
 
@@ -249,13 +267,69 @@ document.querySelector("#engineering-back-to-input")?.addEventListener("click", 
 });
 
 form?.addEventListener("input", () => {
+  invalidateCurrentSnapshot();
   validateClientConstraints();
   try {
-    saveSessionState(readInput(), readSessionState()?.snapshot || null);
+    saveSessionState(readInput());
   } catch {
     // Incomplete numeric input is expected while the user is editing.
   }
 });
+
+function discardMismatchedResponse(message) {
+  invalidateCurrentSnapshot();
+  saveSessionState(readInput());
+  setResultState("dirty");
+  showFormError(message);
+}
+
+function restoreStateAfterFailedRequest(previousState, submittedInput) {
+  let currentInput;
+  try {
+    currentInput = readInput();
+  } catch {
+    invalidateCurrentSnapshot();
+    setResultState("dirty");
+    return;
+  }
+  if (submittedInput && !sameJson(currentInput, submittedInput)) {
+    invalidateCurrentSnapshot();
+    saveSessionState(currentInput);
+    setResultState("dirty");
+    return;
+  }
+  setResultState(previousState);
+}
+
+function responseMatchesRequest(snapshot, submittedInput) {
+  const responseInput = snapshot?.input_original;
+  if (!responseInput || typeof responseInput !== "object") return false;
+  const requestInput = {};
+  Object.entries(inputSchema.properties || {}).forEach(([name, propertySchema]) => {
+    if (Object.hasOwn(submittedInput, name)) {
+      requestInput[name] = submittedInput[name];
+      return;
+    }
+    requestInput[name] = Object.hasOwn(propertySchema, "default") ? propertySchema.default : null;
+  });
+  return sameCanonicalJson(responseInput, requestInput);
+}
+
+function sameCanonicalJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return typeof value === "string" ? value.trim() : value;
+}
 
 function readInput() {
   const input = {};
@@ -308,8 +382,8 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   renderSteps(snapshot.steps || []);
   renderAssumptions(snapshot.assumptions || []);
   renderUnchecked(snapshot.results?.unchecked_items || []);
-  document.querySelector("#engineering-html-report").href = snapshot.links.html_report;
-  document.querySelector("#engineering-pdf-report").href = snapshot.links.pdf;
+  htmlReportLink.href = snapshot.links.html_report;
+  pdfReportLink.href = snapshot.links.pdf;
   if (focus) {
     resultContent.focus({preventScroll: true});
     resultContent.scrollIntoView({behavior: scrollBehavior(), block: "start"});
@@ -429,10 +503,48 @@ function metaItem(label, value) {
 function setResultState(state) {
   resultState = state;
   resultsPanel.dataset.state = state;
-  emptyState.hidden = state !== "idle";
+  resultsPanel.setAttribute("aria-busy", String(state === "loading"));
+  emptyState.hidden = state !== "idle" && state !== "dirty";
   loadingState.hidden = state !== "loading";
   resultContent.hidden = state !== "result";
-  resultStatus.textContent = state === "loading" ? "计算中" : state === "result" ? "已生成快照" : "等待计算";
+  emptyState.textContent = state === "dirty"
+    ? "参数已修改。旧快照与报告链接已隐藏，请按当前参数重新计算。"
+    : "填写左侧参数后执行计算。结果会显示数值等级、公式编号、警告、来源和未完成专项校核。";
+  resultStatus.textContent = state === "loading"
+    ? "计算中"
+    : state === "result"
+      ? "已生成快照"
+      : state === "dirty"
+        ? "需要重新计算"
+        : "等待计算";
+}
+
+function invalidateCurrentSnapshot() {
+  const persistedState = readSessionState();
+  const hadSnapshot = resultState === "result" || resultState === "dirty" || Boolean(persistedState?.snapshot);
+  clearReportLinks();
+  if (persistedState?.snapshot) {
+    saveSessionState(persistedState.input || {});
+  }
+  if (hadSnapshot) setResultState("dirty");
+}
+
+function clearReportLinks() {
+  htmlReportLink.removeAttribute("href");
+  pdfReportLink.removeAttribute("href");
+}
+
+function setFormLocked(locked) {
+  Array.from(form.elements).forEach((control) => {
+    if (locked && !control.disabled) {
+      control.disabled = true;
+      control.dataset.requestLock = "true";
+    } else if (!locked && control.dataset.requestLock === "true") {
+      control.disabled = false;
+      delete control.dataset.requestLock;
+    }
+  });
+  calculateButton.textContent = locked ? "正在计算并保存…" : "执行计算与校核";
 }
 
 function clearErrors() {
@@ -571,9 +683,9 @@ function formatValue(value) {
   return String(value);
 }
 
-function saveSessionState(input, snapshot) {
+function saveSessionState(input, snapshot = null, snapshotInput = null) {
   try {
-    window.sessionStorage.setItem(sessionKey, JSON.stringify({version: 1, input, snapshot}));
+    window.sessionStorage.setItem(sessionKey, JSON.stringify({version: 2, input, snapshot, snapshotInput}));
   } catch (error) {
     console.warn("无法保存当前模块会话。", error);
   }
@@ -584,7 +696,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(sessionKey);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 1 ? state : null;
+    return state?.version === 2 && state.input && typeof state.input === "object" ? state : null;
   } catch {
     return null;
   }
@@ -599,9 +711,19 @@ function restoreSessionState() {
     if (control.type === "checkbox") control.checked = Boolean(value);
     else control.value = formatControlValue(control, value);
   });
-  if (state.snapshot?.module_id === moduleId) renderSnapshot(state.snapshot, {focus: false});
+  if (state.snapshot?.module_id === moduleId && sameJson(state.input, state.snapshotInput)) {
+    renderSnapshot(state.snapshot, {focus: false});
+  }
 }
 
 function formatControlValue(control, value) {
   return control.dataset.jsonType === "json" ? JSON.stringify(value, null, 2) : String(value);
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sameJson(left, right) {
+  return Boolean(left && right) && JSON.stringify(left) === JSON.stringify(right);
 }

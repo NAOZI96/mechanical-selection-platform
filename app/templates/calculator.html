@@ -9,8 +9,8 @@
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/winch_drum">{% endif %}
   <title>绞车卷筒与容绳量计算｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/app.css?v=20260725.4">
-    <script src="/static/calculator.js?v=20260725.1" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
+  <script src="/static/calculator.js?v=20260812.1" defer></script>
 </head>
 <body class="calculator-page">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -72,7 +72,7 @@
             <button type="button" class="button button--ghost" id="load-golden-sample">载入测试金样</button>
           </div>
         </div>
-        <p class="sample-warning">测试金样仅用于验证页面和公式，不是项目推荐参数。所有系数来源默认标记为“待确认”。</p>
+        <p class="sample-warning">测试金样仅用于验证页面和公式，不是项目推荐参数。各参数来源按验证口径显式标记，不能替代项目确认。</p>
 
         <fieldset>
           <legend>作业需求</legend>
@@ -194,6 +194,11 @@
             <label class="field"><span>滑轮效率来源</span><select name="source_pulley_efficiency"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="manufacturer_data">制造商数据</option></select></label>
             <label class="field"><span>固定死圈来源</span><select name="source_dead_wrap_count"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="standard_confirmed">标准已确认</option></select></label>
             <label class="field"><span>反向效率来源</span><select name="source_backdrive_efficiency"><option value="pending_confirmation">待确认</option><option value="user_input">用户输入</option><option value="manufacturer_data">制造商数据</option></select></label>
+            <label class="field"><span>电机工作制来源</span><select name="source_motor_duty_type"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>负载持续率来源</span><select name="source_duty_cycle_percent"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>启动次数来源</span><select name="source_starts_per_hour"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>供电电压来源</span><select name="source_supply_voltage"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
+            <label class="field"><span>供电频率来源</span><select name="source_supply_frequency"><option value="project_default">项目初选默认</option><option value="user_input">用户输入</option><option value="pending_confirmation">待确认</option></select></label>
           </div>
         </fieldset>
 

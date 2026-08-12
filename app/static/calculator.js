@@ -7,6 +7,9 @@ const emptyState = document.querySelector("#empty-state");
 const loadingState = document.querySelector("#loading-state");
 const resultContent = document.querySelector("#result-content");
 const resultPanel = document.querySelector("#results");
+const reportLink = document.querySelector("#report-link");
+const emptyStateTitle = emptyState.querySelector("h2");
+const emptyStateMessage = emptyState.querySelector("h2 + p");
 const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let resultState = "idle";
@@ -50,13 +53,42 @@ const goldenSample = {
   speed_input_location: "drum_rope_end",
   force_input_type: "rated",
   pulley_efficiency: 1,
+  approved_core_ratio: "",
+  minimum_dd_ratio: 20,
+  actual_groove_pitch_mm: "",
+  actual_usable_groove_count: "",
+  termination_allowance_m: 0,
+  brake_basis_type: "design_force",
+  brake_installation_shaft: "drum_or_low_speed",
+  backdrive_efficiency: "",
+  transmission_backdrive_type: "reversible",
+  motor_duty_type: "S3",
+  duty_cycle_percent: 40,
+  starts_per_hour: 60,
+  supply_voltage: 380,
+  supply_frequency: 50,
+  motor_power_series_id: "project_default_iec_kw",
+  source_service_factor: "pending_confirmation",
+  source_pitch_factor: "pending_confirmation",
+  source_brake_safety_factor: "project_default",
+  source_approved_core_ratio: "pending_confirmation",
+  source_minimum_dd_ratio: "project_default",
+  source_pulley_efficiency: "user_input",
+  source_dead_wrap_count: "project_default",
+  source_backdrive_efficiency: "pending_confirmation",
+  source_motor_duty_type: "project_default",
+  source_duty_cycle_percent: "project_default",
+  source_starts_per_hour: "project_default",
+  source_supply_voltage: "project_default",
+  source_supply_frequency: "project_default",
 };
 
 function loadGoldenSample() {
+  invalidateCurrentSnapshot();
+  form.reset();
   Object.entries(goldenSample).forEach(([name, value]) => {
     form.elements[name].value = String(value);
   });
-  form.elements.backdrive_efficiency.value = "";
   form.elements.allow_forward_efficiency_as_reverse_approx.checked = false;
   formErrors.hidden = true;
   saveSessionState();
@@ -75,7 +107,7 @@ function clearCalculatorSession() {
   } catch (error) {
     console.warn("无法清除本次访问的计算参数。", error);
   }
-  document.querySelector("#report-link").href = "#";
+  reportLink.removeAttribute("href");
   setResultState("idle");
   form.querySelector("input, select")?.focus({preventScroll: true});
 }
@@ -86,8 +118,8 @@ document.querySelector("#back-to-input").addEventListener("click", () => {
   form.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   form.querySelector("input, select")?.focus({preventScroll: true});
 });
-form.addEventListener("input", () => saveSessionState());
-form.addEventListener("change", () => saveSessionState());
+form.addEventListener("input", handleFormMutation);
+form.addEventListener("change", handleFormMutation);
 if (new URLSearchParams(window.location.search).get("sample") === "golden") {
   loadGoldenSample();
 } else {
@@ -104,27 +136,33 @@ form.addEventListener("submit", async (event) => {
   }
 
   const previousResultState = resultState;
+  const submittedForm = serializeForm();
+  const payload = buildPayload();
   setLoading(true);
   setResultState("loading");
   try {
     const response = await fetch("/api/v1/modules/winch_drum/calculations", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(buildPayload()),
+      body: JSON.stringify(payload),
     });
     const data = await response.json();
     if (!response.ok) {
       const error = data.error || {message: "计算请求失败", details: []};
       showError(error.message, error.details || []);
-      setResultState(previousResultState);
+      restoreStateAfterFailedRequest(previousResultState, submittedForm);
+      return;
+    }
+    if (!sameJson(serializeForm(), submittedForm) || !winchResponseMatchesRequest(data, payload)) {
+      discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
       return;
     }
     formErrors.hidden = true;
-    saveSessionState(data);
+    saveSessionState(data, submittedForm, submittedForm);
     renderSnapshot(data);
   } catch (error) {
     showError("无法连接计算服务，请确认本地应用仍在运行。", []);
-    setResultState(previousResultState);
+    restoreStateAfterFailedRequest(previousResultState, submittedForm);
   } finally {
     setLoading(false);
   }
@@ -169,6 +207,11 @@ function buildPayload() {
       pulley_efficiency: form.elements.source_pulley_efficiency.value,
       dead_wrap_count: form.elements.source_dead_wrap_count.value,
       backdrive_efficiency: form.elements.source_backdrive_efficiency.value,
+      motor_duty_type: form.elements.source_motor_duty_type.value,
+      duty_cycle_percent: form.elements.source_duty_cycle_percent.value,
+      starts_per_hour: form.elements.source_starts_per_hour.value,
+      supply_voltage: form.elements.source_supply_voltage.value,
+      supply_frequency: form.elements.source_supply_frequency.value,
     },
   };
 }
@@ -182,13 +225,74 @@ function serializeForm() {
   return values;
 }
 
-function saveSessionState(snapshot) {
+function handleFormMutation() {
+  invalidateCurrentSnapshot();
+  saveSessionState();
+}
+
+function discardMismatchedResponse(message) {
+  invalidateCurrentSnapshot();
+  saveSessionState();
+  setResultState("dirty");
+  showError(message, []);
+}
+
+function restoreStateAfterFailedRequest(previousState, submittedForm) {
+  if (!sameJson(serializeForm(), submittedForm)) {
+    invalidateCurrentSnapshot();
+    saveSessionState();
+    setResultState("dirty");
+    return;
+  }
+  setResultState(previousState);
+}
+
+function winchResponseMatchesRequest(snapshot, payload) {
+  const responseInput = snapshot?.input_original;
+  if (!responseInput || typeof responseInput !== "object") return false;
+  const requestInput = {
+    ...payload.input,
+    dead_wrap_count: payload.input.dead_wraps,
+    assumption_sources: payload.assumption_sources,
+  };
+  delete requestInput.dead_wraps;
+  optionalFields.forEach((field) => {
+    const canonicalField = field === "dead_wraps" ? "dead_wrap_count" : field;
+    if (!Object.hasOwn(requestInput, canonicalField)) requestInput[canonicalField] = null;
+  });
+  return sameCanonicalJson(responseInput, requestInput);
+}
+
+function sameCanonicalJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function invalidateCurrentSnapshot() {
+  const persistedState = readSessionState();
+  const hadSnapshot = resultState === "result" || resultState === "dirty" || Boolean(persistedState?.snapshot);
+  reportLink.removeAttribute("href");
+  if (hadSnapshot) setResultState("dirty");
+}
+
+function saveSessionState(snapshot = null, formValues = serializeForm(), snapshotForm = null) {
   try {
-    const previous = readSessionState();
     const state = {
-      version: 1,
-      form: serializeForm(),
-      snapshot: snapshot === undefined ? previous?.snapshot || null : snapshot,
+      version: 2,
+      form: formValues,
+      snapshot,
+      snapshotForm,
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
@@ -201,7 +305,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 1 && state.form && typeof state.form === "object" ? state : null;
+    return state?.version === 2 && state.form && typeof state.form === "object" ? state : null;
   } catch (error) {
     console.warn("无法读取本次访问的计算参数。", error);
     return null;
@@ -220,14 +324,19 @@ function restoreSessionState() {
       field.value = value;
     }
   });
-  if (state.snapshot?.module_id === "winch_drum" && state.snapshot?.results && state.snapshot?.links) {
+  if (
+    state.snapshot?.module_id === "winch_drum"
+    && state.snapshot?.results
+    && state.snapshot?.links
+    && sameJson(state.form, state.snapshotForm)
+  ) {
     renderSnapshot(state.snapshot, {focus: false});
   }
 }
 
 function renderSnapshot(snapshot, {focus = true} = {}) {
   setResultState("result");
-  document.querySelector("#report-link").href = snapshot.links.html_report;
+  reportLink.href = snapshot.links.html_report;
 
   const meta = document.querySelector("#result-meta");
   meta.replaceChildren(
@@ -254,9 +363,13 @@ function setResultState(state) {
   resultState = state;
   resultPanel.dataset.state = state;
   resultPanel.setAttribute("aria-busy", String(state === "loading"));
-  emptyState.hidden = state !== "idle";
+  emptyState.hidden = state !== "idle" && state !== "dirty";
   loadingState.hidden = state !== "loading";
   resultContent.hidden = state !== "result";
+  emptyStateTitle.textContent = state === "dirty" ? "参数已修改" : "等待计算";
+  emptyStateMessage.textContent = state === "dirty"
+    ? "旧快照与报告链接已隐藏；请按当前参数重新计算。"
+    : "填写左侧参数后，结果、警告和逐层容绳明细将在这里显示。";
 }
 
 function renderDesignConclusion(snapshot) {
@@ -458,8 +571,20 @@ function clearFieldErrors() {
 }
 
 function setLoading(loading) {
-  calculateButton.disabled = loading;
+  Array.from(form.elements).forEach((control) => {
+    if (loading && !control.disabled) {
+      control.disabled = true;
+      control.dataset.requestLock = "true";
+    } else if (!loading && control.dataset.requestLock === "true") {
+      control.disabled = false;
+      delete control.dataset.requestLock;
+    }
+  });
   calculateButton.textContent = loading ? "正在计算并保存…" : "保存快照并计算";
+}
+
+function sameJson(left, right) {
+  return Boolean(left && right) && JSON.stringify(left) === JSON.stringify(right);
 }
 
 function metaItem(label, value, tone) {
