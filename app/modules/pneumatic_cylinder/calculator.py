@@ -13,6 +13,7 @@ from app.modules.engineering_common import (
     SourceStatus,
     WarningRecord,
     WarningSeverity,
+    candidate_source_allows_comparison,
 )
 
 from .constants import CALCULATION_MODEL_VERSION, DISCLAIMER, MODULE_ID, MODULE_VERSION
@@ -303,6 +304,7 @@ def calculate(data: PneumaticCylinderInput) -> PneumaticCylinderResult:
             )
         )
 
+    candidate_source_ready = candidate_source_allows_comparison(data.candidate_data_source_status)
     if data.candidate_max_supply_absolute_pressure_pa is None:
         pressure_rating_result = _scalar(
             None,
@@ -320,6 +322,14 @@ def calculate(data: PneumaticCylinderInput) -> PneumaticCylinderResult:
                 ("candidate_pressure_rating_pass",),
                 "提供候选气缸最大允许供气绝压、样本版本和适用温度条件。",
             )
+        )
+    elif not candidate_source_ready:
+        pressure_rating_result = _scalar(
+            None,
+            "",
+            ResultClassification.REVIEW_REQUIRED,
+            "CYL_CHECK-003",
+            "候选气缸最大允许供气绝压来源待确认，确认前不生成压力额定比较结论。",
         )
     else:
         pressure_rating_pass = (
@@ -356,17 +366,24 @@ def calculate(data: PneumaticCylinderInput) -> PneumaticCylinderResult:
                     "降低供气压力或选择额定压力更高的气缸和附件。",
                 )
             )
-        if data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA:
-            warnings.append(
-                _warning(
-                    "CYL_CANDIDATE_SOURCE_UNCONFIRMED",
-                    WarningSeverity.WARNING,
-                    "候选压力数据并非已确认制造商数据",
-                    "压力额定比较可用于排查，但不能形成产品放行结论。",
-                    ("candidate_pressure_rating_pass",),
-                    "用候选型号制造商样本中的压力额定值及温度降额替换当前数据。",
-                )
+    if data.candidate_data_source_status is not None and (
+        data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
+    ):
+        source_pending = data.candidate_data_source_status is SourceStatus.PENDING_CONFIRMATION
+        warnings.append(
+            _warning(
+                "CYL_CANDIDATE_SOURCE_UNCONFIRMED",
+                WarningSeverity.HIGH if source_pending else WarningSeverity.WARNING,
+                "候选压力数据来源待确认" if source_pending else "候选压力数据并非已确认制造商数据",
+                (
+                    "候选来源仍为待确认，压力额定比较结果保持待校核。"
+                    if source_pending
+                    else "压力额定比较可用于排查，但不能形成产品放行结论。"
+                ),
+                ("candidate_pressure_rating_pass",),
+                "用候选型号制造商样本中的压力额定值及温度降额替换当前数据。",
             )
+        )
 
     assumptions = [
         AssumptionRecord(

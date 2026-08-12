@@ -2,8 +2,8 @@
 
 MODULE_ID = "synchronous_belt"
 MODULE_NAME = "同步带传动选型"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "synchronous_belt.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "synchronous_belt.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "synchronous_belt.report.1.0.1"
 
 DISCLAIMER = (

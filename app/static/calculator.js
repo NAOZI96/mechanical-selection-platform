@@ -11,6 +11,8 @@ const reportLink = document.querySelector("#report-link");
 const emptyStateTitle = emptyState.querySelector("h2");
 const emptyStateMessage = emptyState.querySelector("h2 + p");
 const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
+const CALCULATION_ENDPOINT = "/api/v1/modules/winch_drum/calculations";
+const CALCULATION_TIMEOUT_MS = 20000;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let resultState = "idle";
 
@@ -141,18 +143,7 @@ form.addEventListener("submit", async (event) => {
   setLoading(true);
   setResultState("loading");
   try {
-    const response = await fetch("/api/v1/modules/winch_drum/calculations", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const error = data.error || {message: "计算请求失败", details: []};
-      showError(error.message, error.details || []);
-      restoreStateAfterFailedRequest(previousResultState, submittedForm);
-      return;
-    }
+    const data = await fetchCalculation(payload);
     if (!sameJson(serializeForm(), submittedForm) || !winchResponseMatchesRequest(data, payload)) {
       discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
       return;
@@ -161,7 +152,11 @@ form.addEventListener("submit", async (event) => {
     saveSessionState(data, submittedForm, submittedForm);
     renderSnapshot(data);
   } catch (error) {
-    showError("无法连接计算服务，请确认本地应用仍在运行。", []);
+    showError(
+      error instanceof Error ? error.message : "无法连接计算服务，请确认应用仍在运行。",
+      error?.details || [],
+      {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+    );
     restoreStateAfterFailedRequest(previousResultState, submittedForm);
   } finally {
     setLoading(false);
@@ -546,7 +541,7 @@ function resultCard(label, result) {
   return card;
 }
 
-function showError(message, details) {
+function showError(message, details = [], {requestId = "", retryable = false} = {}) {
   formErrors.replaceChildren();
   const title = document.createElement("strong");
   title.textContent = message;
@@ -557,10 +552,40 @@ function showError(message, details) {
       const item = document.createElement("li");
       item.textContent = `${detail.field || "输入"}：${detail.message}`;
       list.append(item);
-      const field = form.elements[detail.field];
+      const fieldParts = String(detail.field || "").split(".").filter(Boolean);
+      const fieldName = fieldParts[0] === "input" ? fieldParts[1] : fieldParts[0];
+      const field = fieldName ? form.elements[fieldName] : null;
       if (field) field.setAttribute("aria-invalid", "true");
     });
     formErrors.append(list);
+  }
+  if (requestId || retryable) {
+    const context = document.createElement("p");
+    context.className = "error-context";
+    if (retryable) {
+      context.append(
+        "当前页面未收到可用的新快照；网络中断或超时时，服务端完成状态可能未知。请凭请求 ID 核查，重新发起计算可能生成另一份快照。",
+      );
+    }
+    if (requestId) {
+      if (retryable) context.append(" ");
+      context.append("请求 ID：");
+      const code = document.createElement("code");
+      code.textContent = requestId;
+      context.append(code);
+    }
+    formErrors.append(context);
+  }
+  if (retryable) {
+    const actions = document.createElement("div");
+    actions.className = "error-actions";
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "button button--secondary error-retry";
+    retryButton.textContent = "重新发起计算";
+    retryButton.addEventListener("click", () => form.requestSubmit());
+    actions.append(retryButton);
+    formErrors.append(actions);
   }
   formErrors.hidden = false;
   formErrors.scrollIntoView({behavior: scrollBehavior(), block: "center"});
@@ -581,6 +606,97 @@ function setLoading(loading) {
     }
   });
   calculateButton.textContent = loading ? "正在计算并保存…" : "保存快照并计算";
+}
+
+async function fetchCalculation(payload, timeoutMs = CALCULATION_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const clientRequestId = createClientRequestId();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(CALCULATION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(clientRequestId ? {"X-Request-ID": clientRequestId} : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const headerRequestId = response.headers.get("x-request-id") || clientRequestId;
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw calculationRequestError("计算服务返回了非 JSON 响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    const responseText = await response.text();
+    if (!responseText.trim()) {
+      throw calculationRequestError("计算服务返回了空响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw calculationRequestError("计算服务返回了无效 JSON，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    if (!response.ok) {
+      const apiError = data?.error || {};
+      throw calculationRequestError(apiError.message || `计算请求失败（HTTP ${response.status}）。`, {
+        details: Array.isArray(apiError.details)
+          ? apiError.details.filter((detail) => detail && typeof detail === "object")
+          : [],
+        requestId: apiError.request_id || headerRequestId,
+        retryable: isRetryableHttpStatus(response.status),
+        status: response.status,
+      });
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw calculationRequestError("计算请求超时，请检查网络或服务状态后重试。", {
+        requestId: clientRequestId,
+        retryable: true,
+      });
+    }
+    if (error?.isCalculationRequestError) throw error;
+    throw calculationRequestError("无法连接计算服务，请确认应用仍在运行。", {
+      requestId: clientRequestId,
+      retryable: true,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function calculationRequestError(message, {details = [], requestId = "", retryable = false, status = null} = {}) {
+  const error = new Error(message);
+  error.details = details;
+  error.requestId = requestId;
+  error.retryable = retryable;
+  error.status = status;
+  error.isCalculationRequestError = true;
+  return error;
+}
+
+function isRetryableHttpStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function createClientRequestId() {
+  return typeof window.crypto?.randomUUID === "function" ? window.crypto.randomUUID() : "";
 }
 
 function sameJson(left, right) {

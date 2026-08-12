@@ -2,8 +2,8 @@
 
 MODULE_ID = "pneumatic_cylinder"
 MODULE_NAME = "气缸选型"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "pneumatic_cylinder.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "pneumatic_cylinder.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "pneumatic_cylinder.report.1.0.1"
 
 DISCLAIMER = (

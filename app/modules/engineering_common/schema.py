@@ -30,6 +30,17 @@ class SourceStatus(str, Enum):
     PENDING_CONFIRMATION = "pending_confirmation"
 
 
+def candidate_source_allows_comparison(source_status: SourceStatus | None) -> bool:
+    """Return whether candidate data may produce a comparison conclusion.
+
+    Pending candidate values remain auditable inputs, but they must not produce
+    a pass/fail, utilization, or margin result until their provenance is no
+    longer pending.
+    """
+
+    return source_status is not None and source_status is not SourceStatus.PENDING_CONFIRMATION
+
+
 class CalculationStatus(str, Enum):
     COMPLETED = "completed"
     COMPLETED_WITH_WARNINGS = "completed_with_warnings"

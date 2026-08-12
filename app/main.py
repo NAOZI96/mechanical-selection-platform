@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from html import escape
 from typing import Any
@@ -19,7 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import PROJECT_ROOT, Settings
 from app.modules.catalog import build_module_catalog
 from app.modules.registry import ModuleRegistry, default_registry
-from app.persistence.database import database_is_ready, initialize_database
+from app.persistence.database import database_is_ready, database_is_writable, initialize_database
 from app.persistence.repository import CalculationRepository
 from app.reporting.context import build_report_context
 from app.reporting.models import ReportContext
@@ -27,6 +28,18 @@ from app.reporting.service import PdfReportService, ReportServiceError
 from app.services.calculations import CalculationService
 
 LOGGER = logging.getLogger(__name__)
+
+_SQLITE_UNAVAILABLE_PRIMARY_CODES = {
+    sqlite3.SQLITE_BUSY,
+    sqlite3.SQLITE_LOCKED,
+    sqlite3.SQLITE_READONLY,
+    sqlite3.SQLITE_IOERR,
+    sqlite3.SQLITE_CORRUPT,
+    sqlite3.SQLITE_FULL,
+    sqlite3.SQLITE_CANTOPEN,
+    sqlite3.SQLITE_PROTOCOL,
+    sqlite3.SQLITE_NOTADB,
+}
 
 
 def create_app(settings: Settings | None = None, registry: ModuleRegistry | None = None) -> FastAPI:
@@ -37,14 +50,14 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
     async def lifespan(_: FastAPI):
         if app_settings.auto_migrate_database:
             initialize_database(app_settings.database_path)
-        elif not database_is_ready(app_settings.database_path):
-            raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
+        if not database_is_ready(app_settings.database_path):
+            raise RuntimeError("数据库缺失、损坏或迁移结构不完整；生产环境必须先执行受控迁移")
         report_service.validate_runtime()
         yield
 
     app = FastAPI(
         title="机械智选 · Mechanical Selection Platform",
-        version="0.5.1",
+        version="0.5.2",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -149,6 +162,30 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 message,
                 request.state.request_id,
             )
+        return _apply_response_controls(response, request, app_settings)
+
+    @app.exception_handler(sqlite3.Error)
+    async def database_error_handler(request: Request, exc: sqlite3.Error):
+        sqlite_error_code = getattr(exc, "sqlite_errorcode", None)
+        primary_code = sqlite_error_code & 0xFF if isinstance(sqlite_error_code, int) else None
+        is_unavailable = primary_code in _SQLITE_UNAVAILABLE_PRIMARY_CODES or (
+            primary_code is None and isinstance(exc, sqlite3.OperationalError)
+        )
+        if not is_unavailable:
+            return await unhandled_error_handler(request, exc)
+        LOGGER.error(
+            "Database operation failed request_id=%s path=%s sqlite_error=%s",
+            request.state.request_id,
+            request.url.path,
+            getattr(exc, "sqlite_errorname", exc.__class__.__name__),
+        )
+        response = _error(
+            503,
+            "DATABASE_UNAVAILABLE",
+            "数据库暂不可写或不可用，未保存本次计算；请稍后重试",
+            request.state.request_id,
+        )
+        response.headers["Retry-After"] = "5"
         return _apply_response_controls(response, request, app_settings)
 
     def module_or_404(module_id: str):
@@ -283,6 +320,8 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         if (
             not active_registry.list()
             or not database_is_ready(app_settings.database_path, verify_integrity=False)
+            or not database_is_writable(app_settings.database_path)
+            or not app_settings.allows_calculation_write()
             or not report_service.is_ready()
         ):
             raise HTTPException(status_code=503, detail="应用尚未就绪")
@@ -324,6 +363,15 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
     @app.post("/api/v1/modules/{module_id}/calculations", status_code=201)
     def create_calculation(module_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
         module_or_404(module_id)
+        if not app_settings.allows_calculation_write():
+            response = _error(
+                503,
+                "PERSISTENT_CAPACITY_LIMIT",
+                "持久化空间已达到计算停止阈值，未保存本次计算；请联系维护人员清理空间",
+                request.state.request_id,
+            )
+            response.headers["Retry-After"] = "60"
+            return response
         raw_input = payload.get("input")
         if not isinstance(raw_input, dict):
             return _validation_error(

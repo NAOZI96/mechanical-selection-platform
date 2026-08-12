@@ -10,7 +10,7 @@
 
 Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。Phase 8 通过通用迁移 `005_calculation_release_status.sql` 增加可空发布状态列：新计算冻结注册表中的当次状态，迁移前旧记录保留 `NULL` 并读取为 `legacy_unknown`，不得按当前注册表回填。
 
-文档版本：0.5.1
+文档版本：0.5.2
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 
@@ -104,7 +104,7 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 
 逐层数组中的每层保存层号、工作直径、每圈长度、完整/使用圈数、毛/可用/累计容量。展示字符串不作为数值真源。
 
-扩展模块结果同样使用带 `value`、`unit`、`classification`、`formula_ids` 和可选 `reason` 的标量对象；模块专属结果保存在 `results_json`，不可计算结论使用 `value=null` 且分类为 `review_required`。只有 `winch_drum` 需要逐层容量数组。
+扩展模块结果同样使用带 `value`、`unit`、`classification`、`formula_ids` 和可选 `reason` 的标量对象；模块专属结果保存在 `results_json`。候选数据缺失或候选来源为 `pending_confirmation` 时，依赖候选的比较结论使用 `value=null` 且分类为 `review_required`，原始候选值/引用/来源仍保存在输入与报告上下文。只有 `winch_drum` 需要逐层容量数组。
 
 ### 5.3 假设与确认
 
@@ -121,9 +121,9 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 
 ## 7. 迁移、保留与恢复
 
-- 使用轻量迁移工具或有序 SQL 迁移；生产设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动只做完整迁移/数据库就绪检查，不在未经备份的生产库上自动迁移。
+- 使用有序 SQL 迁移；每份迁移 SQL 与版本登记原子提交。生产设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动核对迁移台账，并把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对后执行 `quick_check`，不在未经备份的生产库上自动迁移。
 - 迁移前执行 SQLite 在线备份并记录应用/模型版本；恢复演练包含主库、WAL/SHM 处理和文件权限。
-- 当前不自动删除计算记录或 PDF；项目持久化容量上限 5 GiB，达到 85% 后停止生成新 PDF。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
+- 当前不自动删除计算记录或 PDF；SQLite 主库、WAL/SHM 与报告共享 5 GiB 预算，85% 停止生成新 PDF，95% 或磁盘低于最小余量时停止新增快照但保留历史读取。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
 - 备份至少包含 SQLite 一致性备份与报告清单；schema v4 快照可按其保存的报告上下文重建 PDF，但模板版本/字体变化可能改变二进制。缺少计算时发布状态的旧快照不得重建 PDF，因此遗留缓存和重要报告需单独归档。
 
 ## 8. 迁移 `005` 与旧记录兼容

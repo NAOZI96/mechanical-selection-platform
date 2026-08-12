@@ -1,6 +1,6 @@
 # 部署设计
 
-文档版本：0.5.1
+文档版本：0.5.2
 
 目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘
 状态：Phase 4 首发模块目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁。当前 Phase 8 九模块候选版及迁移 `005_calculation_release_status.sql` 仅完成本地实现与回归，未执行远程部署、数据库迁移或目标机资源复验。
@@ -12,7 +12,7 @@
 - 默认只绑定宿主机 `127.0.0.1` 的未占用高位端口，由现有反向代理按独立域名/路径转发；上线前必须盘点端口、网络、磁盘和现有 Compose 项目。
 - 不修改青龙、OpenClaw、Mihomo 或其他容器的网络、端口、卷、重启策略和配置。
 - 不把约 10 GB Swap 当作可用应用内存；Swap 只用于突发保护，持续换页视为容量失败。
-- 九模块仍复用同一 FastAPI 单 worker、SQLite 和受限 PDF 子进程。当前候选版包含通用可空迁移 `005_calculation_release_status.sql`，没有新增数据库服务、消息队列或其他常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 计算模型升级为 `winch_drum.calc.1.2.1`。
+- 九模块仍复用同一 FastAPI 单 worker、SQLite 和受限 PDF 子进程。当前候选版包含通用可空迁移 `005_calculation_release_status.sql`，没有新增数据库服务、消息队列或其他常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块升为各自 `*.calc.1.0.1`。
 
 ## 2. 容器与目录
 
@@ -51,6 +51,7 @@ PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像
 
 - `journal_mode=WAL`、`foreign_keys=ON`、合理 `busy_timeout`；具体值在性能测试后冻结。
 - 数据库写事务只覆盖快照落库，不包含计算和 PDF。
+- 每份迁移 SQL 与版本登记使用同一显式事务；中途 SQL 或台账登记失败整体回滚。启动拒绝迁移名齐全但实际 table/index/trigger 完整签名与内置迁移权威 schema 不一致的数据库。
 - 定期检查 `PRAGMA integrity_check`（频率需确认）并监控主库/WAL 大小。
 - 备份使用 SQLite 在线备份 API 或确认过的 `.backup`，禁止在写入时简单复制主文件而遗漏 WAL。
 - 部署/迁移前备份；恢复在独立临时目录验证后再切换，保留回滚点。
@@ -67,10 +68,10 @@ PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像
 
 - Docker 日志轮转；应用日志只输出结构化摘要，不打印完整快照。
 - 报告采用内容/记录 ID 管理，生成失败的临时文件及时清理。
-- 项目持久化容量上限 5 GiB；达到 85% 停止新 PDF，但仍允许计算和读取已有报告。
+- 项目持久化容量上限 5 GiB，统一统计 SQLite、WAL/SHM 和报告；当前用量加 20 MiB PDF 预留达到 85% 时停止新 PDF，达到 95% 时停止新增快照，两种情况均保留已有记录/报告读取。
 - 先清理可再生 PDF，再考虑历史计算；MVP 默认不自动删除计算快照。
 - 备份需有上限与轮换策略。初始候选为每日 7 份 + 每周 4 份，但必须根据实际数据增速和恢复目标确认。
-- 监控系统盘剩余空间；建议剩余低于 5 GiB 或 15%（取较大者）时停止 PDF/备份写入并报警，阈值上线前结合现有服务确认。
+- 应用硬门禁要求 data/reports 所在文件系统至少保留 512 MiB；运维仍采用更保守的“剩余低于 5 GiB 或 15%（取较大者）即停止 PDF/备份写入并报警”，并在到达应用 95% 门禁前安排清理。
 
 ## 7. 网络、安全和秘密
 
@@ -90,7 +91,7 @@ PDF 使用 ReportLab 子进程，不启动浏览器或常驻 PDF 服务。镜像
 1. 在非生产环境构建固定版本镜像并完成单元、金样、API、PDF 和资源测试；记录镜像 ID/摘要。
 2. 盘点目标机 CPU/内存/Swap/磁盘、端口、Docker 网络及既有服务基线；任何冲突先停止发布。
 3. 备份数据库和当前 Compose/环境配置；记录镜像摘要、应用版本和模型版本。
-4. 新库或已有库都先运行受控迁移命令；已有库必须指定备份目录。当前候选版必须应用到 `005_calculation_release_status.sql`。生产 Web 设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动时只接受与镜像迁移清单完全一致的数据库。
+4. 新库或已有库都先运行受控迁移命令；已有库必须指定备份目录。当前候选版必须应用到 `005_calculation_release_status.sql`。生产 Web 设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动时只接受迁移台账完整、实际 table/index/trigger 签名与内置迁移权威 schema 一致且 `quick_check=ok` 的数据库。
 5. 启动单个新容器，确认启动日志已通过字体/报告目录写探针，再检查 live/ready、日志、内存、数据库写读和一份受控 PDF。
 6. 配置代理路由并小流量验证；观察至少一个约定窗口再完成发布。
 7. 失败时恢复旧镜像/配置；数据库发生不兼容迁移时按已演练备份恢复。
@@ -111,13 +112,13 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/live
 curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 ```
 
-首次新库没有可备份文件；迁移器直接建库。已有非空库若未提供 `--backup-dir` 会拒绝执行。上述 `/backups` bind 只存在于一次性迁移容器；长期 `web` 服务的 Compose 定义不得含该挂载。不得通过临时开启生产自动迁移绕过该门禁。`/health/ready` 只验证关键表/迁移清单、`SELECT 1`、字体及报告目录存在，不执行 `PRAGMA quick_check`、目录写探针或 PDF 试渲染；它不能替代迁移前备份、启动日志检查和功能冒烟。
+首次新库没有可备份文件；迁移器直接建库。已有非空库若未提供 `--backup-dir` 会拒绝执行。上述 `/backups` bind 只存在于一次性迁移容器；长期 `web` 服务的 Compose 定义不得含该挂载。不得通过临时开启生产自动迁移绕过该门禁。`/health/ready` 执行实际 schema 核对、回滚式主库写探针、报告临时文件写删和新快照容量/余量检查；它不执行 `PRAGMA quick_check`、工程计算或 PDF 试渲染，不能替代迁移前备份、启动日志和功能冒烟。
 
 ## 9. 备份与恢复目标（C-08 已确认）
 
 - RPO 24 小时；RTO 4 小时。
 - 普通记录保留 90 天、PDF 30 天；每日备份 7 份、每周备份 8 份，长期保留项目不自动删除。
-- 项目持久化上限 5 GB：70% 告警，85% 停止新 PDF。
+- 项目持久化上限 5 GB：70% 告警，85% 停止新 PDF，95% 停止新增快照并只保留历史读取/清理路径。
 - 系统盘 75% 告警，85% 停止 PDF/上传，90% 停止新增历史，只保留健康检查和清理。
 - 单请求 JSON 1 MB、单 PDF 20 MB；日志单文件 10 MB、最多 5 个轮转。自动清理必须留日志。
 - 备份范围：SQLite 一致性备份、迁移版本、部署配置（去除秘密）、报告清单；重要 PDF 可选纳入。
@@ -154,7 +155,7 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 当前候选版包含 `transmission_check`、`gear_drive`、`shaft_bearing`、`lead_screw`、`synchronous_belt`、`motor_drive`、`stepper_motor` 和 `pneumatic_cylinder`，并完成产品主页、CSP-safe 文档、安全/缓存头和发布状态快照治理，但仍只完成本地软件实现：
 
 - 沿用通用 JSON 快照和报告表，不增加模块专属列；新增通用可空迁移 `005_calculation_release_status.sql`；
-- 新计算写入 snapshot schema v4 / report context schema v4；报告模板为 `winch_drum.report.1.2.1` 和八模块 `*.report.1.0.1`；
+- 新计算写入 snapshot schema v4 / report context schema v4；报告模板为 `winch_drum.report.1.2.1` 和八模块 `*.report.1.0.1`，计算模型为 `winch_drum.calc.1.2.1` 和八模块各自 `*.calc.1.0.1`；
 - 沿用同一 Web worker、Jinja2、原生 JavaScript/CSS 和按请求启动的受限 PDF 子进程，没有新增常驻服务；
 - 本地 Compose 候选已移除长期 Web 的 `/backups` 挂载；尚未修改目标机上的 Compose、Caddy、青龙、OpenClaw、Mihomo 或其他现有服务；
 - 没有构建/推送当前候选版生产镜像，也没有执行远程切换、迁移 `005` 或公网复测；
@@ -166,7 +167,7 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 2. 确认长期 Web 仅挂载 data/reports；通过第 8 节的一次性迁移容器临时挂载 backups，对目标库做 SQLite 在线备份，在隔离环境演练 `005` 后受控应用迁移并确认迁移清单完整；
 3. 验证迁移前 `winch_drum` 快照 HTML 可读：有效旧缓存 PDF 带 `legacy_unknown` 标记可下载，无有效缓存时稳定返回 409 且不重算；
 4. 对九个模块分别完成计算、GET schema v4 快照、HTML 和 PDF 冒烟，确认报告返回对应模块页面和计算时发布状态；
-5. 验证首页筛选、CSP-safe `/docs`/`/redoc`、安全头、缓存头、启动报告目录/字体检查及浅层 `/health/ready`；
+5. 验证首页筛选、CSP-safe `/docs`/`/redoc`、安全头、缓存头、启动 schema/报告目录/字体检查及强化 `/health/ready` 写能力与容量语义；
 6. 重跑 1000 次代表性混合计算、20 份混合模块 PDF、5 并发 PDF 和资源采样；
 7. 复核数据库/报告容量、备份恢复、临时文件清理以及青龙、Mihomo、OpenClaw 健康状态；
 8. 机械门禁未关闭的模块继续保持 `internal_testing` 或 `engineering_review`，不得仅因部署成功提升为 `released`。

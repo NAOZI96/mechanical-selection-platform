@@ -13,6 +13,7 @@ from app.modules.engineering_common import (
     SourceStatus,
     WarningRecord,
     WarningSeverity,
+    candidate_source_allows_comparison,
 )
 
 from .constants import (
@@ -207,6 +208,7 @@ def calculate(data: SynchronousBeltInput) -> SynchronousBeltResult:
             )
         )
 
+    candidate_source_ready = candidate_source_allows_comparison(data.candidate_data_source_status)
     if data.manufacturer_allowable_effective_tension_n is None:
         allowable_tension_result = _scalar(
             None,
@@ -224,6 +226,14 @@ def calculate(data: SynchronousBeltInput) -> SynchronousBeltResult:
                 ("allowable_tension_pass",),
                 "提供与带型、带宽和运行条件对应的制造商许用有效圆周力及数据版本。",
             )
+        )
+    elif not candidate_source_ready:
+        allowable_tension_result = _scalar(
+            None,
+            "",
+            ResultClassification.REVIEW_REQUIRED,
+            "BELT_CHECK-001",
+            "候选带许用有效圆周力来源待确认，确认前不生成承载比较结论。",
         )
     else:
         tension_pass = effective_force <= data.manufacturer_allowable_effective_tension_n
@@ -277,6 +287,14 @@ def calculate(data: SynchronousBeltInput) -> SynchronousBeltResult:
                 "提供候选带型对应的最大带速及制造商数据版本。",
             )
         )
+    elif not candidate_source_ready:
+        maximum_speed_result = _scalar(
+            None,
+            "",
+            ResultClassification.REVIEW_REQUIRED,
+            "BELT_CHECK-002",
+            "候选带最大带速来源待确认，确认前不生成速度比较结论。",
+        )
     else:
         speed_pass = belt_speed <= data.manufacturer_max_belt_speed_m_s
         maximum_speed_result = _scalar(
@@ -308,16 +326,20 @@ def calculate(data: SynchronousBeltInput) -> SynchronousBeltResult:
                 )
             )
 
-    if (
-        data.candidate_data_source_status is not None
-        and data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
+    if data.candidate_data_source_status is not None and (
+        data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
     ):
+        source_pending = data.candidate_data_source_status is SourceStatus.PENDING_CONFIRMATION
         warnings.append(
             _warning(
                 "BELT_CANDIDATE_SOURCE_UNCONFIRMED",
-                WarningSeverity.WARNING,
-                "候选带数据并非已确认制造商数据",
-                "候选额定值可以进行算术比较，但其来源状态不足以形成产品放行结论。",
+                WarningSeverity.HIGH if source_pending else WarningSeverity.WARNING,
+                "候选带数据来源待确认" if source_pending else "候选带数据并非已确认制造商数据",
+                (
+                    "候选来源仍为待确认，候选比较结果保持待校核。"
+                    if source_pending
+                    else "候选额定值可以进行算术比较，但其来源状态不足以形成产品放行结论。"
+                ),
                 ("allowable_tension_pass", "maximum_speed_pass"),
                 "用可追溯的制造商样本或选型程序结果替换候选额定值。",
             )

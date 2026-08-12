@@ -156,7 +156,8 @@
 - [x] 增加通用受控工作台、中文字段/结果标签、显式非推荐验证算例和逐模块工程发布状态。
 - [x] 软件可运行状态与工程发布状态分离：`winch_drum=engineering_review`，八个扩展模块均为 `internal_testing`。
 - [x] 形成八模块计算规格和公式追溯入口：[`docs/EXPANDED_MODULES_CALCULATION_SPEC.md`](docs/EXPANDED_MODULES_CALCULATION_SPEC.md)、[`docs/EXPANDED_FORMULA_TEST_MATRIX.md`](docs/EXPANDED_FORMULA_TEST_MATRIX.md)。
-- [x] 当前九模块候选版 126 项本地回归全部通过，覆盖单元、边界、派生数值安全、公式库存防漂移、产品页面、API、HTML/PDF、受控 500 错误页、schema v4、遗留数据和持久化契约。
+- [x] 将八模块的候选/许用数据来源门禁统一到各自 `*.calc.1.0.1`：来源为 `pending_confirmation` 时保留原始输入与引用，但利用率、余量和通过/失败结论固定为 `null/review_required`，且快照/HTML/PDF 不伪造已执行的候选比较步骤或可采用结论。
+- [x] 当前九模块候选版 143 项本地回归全部通过，覆盖单元、边界、派生数值安全、公式库存防漂移、产品页面、API、HTML/PDF、受控 500 错误页、schema v4、遗留数据和持久化契约。
 - [x] 八模块继续复用通用 JSON 快照和报告表，没有增加模块专属列或常驻服务，也未执行远程部署；计算时发布状态持久化由后续 Phase 8 的通用迁移 `005` 完成。
 - [ ] 如需模块间数据传递，另行设计显式版本化 DTO 和用户确认页面；当前模块之间不隐式读取彼此结果。
 
@@ -183,12 +184,14 @@
 - [x] Phase 8 当时将新计算升级为 snapshot schema v4 / report context schema v4；报告上下文保存发布状态及中文标签，且该阶段没有改变工程公式、SI 输入口径或 `calculation_model_version`。后续 2026-08 来源边界硬化单独升级了 `winch_drum` 计算模型。
 - [x] 报告模板升级为 `winch_drum.report.1.2.1` 与八模块 `*.report.1.0.1`，使新增发布状态展示与旧模板缓存明确隔离。
 - [x] 冻结旧报告策略：通过相对路径、大小与 SHA-256 校验的遗留缓存 PDF 可继续下载并带 `legacy_unknown` 告警；无有效缓存的旧快照返回 `409 LEGACY_RELEASE_STATUS_MISSING`，不得用当前发布状态重建。
-- [x] 启动时检查固定 Noto Sans SC 字体及报告/临时目录可写；`/health/ready` 只检查注册表、已应用迁移和报告运行目录/字体存在，不执行完整数据库完整性检查或 PDF 试渲染。
+- [x] 单份迁移 SQL 与版本登记原子提交；启动把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对并执行 `quick_check`，同名空触发器、字符串字面量漂移及额外/伪装 UNIQUE 索引均不能绕过门禁。`/health/ready` 以可回滚数据库写探针、报告目录写删探针及 95% 容量/磁盘余量门禁判断是否还能接收新计算，但不执行工程计算或 PDF 试渲染。
+- [x] 共享 5 GiB 持久化预算同时统计 SQLite、WAL/SHM 与报告：85% 停止新 PDF，95% 或可用空间不足停止新增快照并返回受控 503，已有快照/报告读取保持可用。
+- [x] 绞车工作台补齐 20 秒超时、Content-Type/空/无效 JSON/HTTP 错误解析与请求 ID；超时/断网按“服务端结果未知、重新发起可能产生另一快照”提示；390/430 px 保留安全范围说明和工程发布状态。
 - [ ] 在目标主机在线备份后受控应用迁移 `005`，再完成九模块计算、HTML/PDF、旧缓存、资源、恢复和既有服务影响复验。
 
 ### Phase 8 发布门禁
 
-- [x] 当前候选版 126 项全量单元、边界、公式回归、API、PDF、迁移、兼容、受控错误页与安全头测试通过。
+- [x] 当前候选版 143 项全量单元、边界、公式回归、API、PDF、迁移、兼容、受控错误页与安全头测试通过。
 - [ ] 生产 `DESIGN_AGENT_AUTO_MIGRATE=false`；不得在未备份的目标库上通过临时开启自动迁移绕过门禁。
 - [ ] `legacy_unknown` 只表示旧记录缺少当时发布状态，必须按内部测试边界展示，不得推断为当时已评审或已放行。
 - [ ] Phase 4 历史验收只证明当时 `001`～`004` 的首发模块镜像；迁移 `005` 和当前候选版仍需独立目标机证据。

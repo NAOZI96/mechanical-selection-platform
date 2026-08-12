@@ -14,14 +14,15 @@ from app.modules.engineering_common import (
     WarningRecord,
     WarningSeverity,
     calculation_status,
+    candidate_source_allows_comparison,
 )
 
 from .schema import ShaftBearingInput, ShaftBearingResult
 
 MODULE_ID = "shaft_bearing"
 MODULE_NAME = "轴与轴承初选"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "shaft_bearing.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "shaft_bearing.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "shaft_bearing.report.1.0.1"
 
 DISCLAIMER = (
@@ -139,7 +140,9 @@ def _warnings(
                 recommended_action="提供经批准的材料、工况许用应力及其标准或项目依据。",
             )
         )
-    elif von_mises_stress_pa > source.allowable_von_mises_stress_mpa * 1.0e6:
+    elif candidate_source_allows_comparison(source.allowable_stress_source_status) and (
+        von_mises_stress_pa > source.allowable_von_mises_stress_mpa * 1.0e6
+    ):
         warnings.append(
             WarningRecord(
                 code="ALLOWABLE_STRESS_EXCEEDED",
@@ -258,10 +261,13 @@ def calculate(source: ShaftBearingInput) -> ShaftBearingResult:
     )
 
     allowable_stress = data.allowable_von_mises_stress_pa
-    stress_utilization = None if allowable_stress is None else von_mises_stress / allowable_stress
-    stress_margin = None if allowable_stress is None else allowable_stress - von_mises_stress
-    stress_satisfied = None if allowable_stress is None else von_mises_stress <= allowable_stress
-    if allowable_stress is not None:
+    stress_check_ready = allowable_stress is not None and candidate_source_allows_comparison(
+        data.allowable_stress_source_status
+    )
+    stress_utilization = None if not stress_check_ready else von_mises_stress / allowable_stress
+    stress_margin = None if not stress_check_ready else allowable_stress - von_mises_stress
+    stress_satisfied = None if not stress_check_ready else von_mises_stress <= allowable_stress
+    if stress_check_ready:
         recorder.add(
             "CHECK-001",
             "u_sigma = sigma_vm/sigma_allow",
@@ -289,8 +295,10 @@ def calculate(source: ShaftBearingInput) -> ShaftBearingResult:
 
     warnings = _warnings(source, von_mises_stress)
     missing_reason = "未提供带来源的候选许用应力，只能输出名义应力，不能作强度通过结论。"
+    pending_reason = "候选许用应力来源待确认，确认前不生成强度比较结论。"
+    check_reason = missing_reason if allowable_stress is None else pending_reason if not stress_check_ready else None
     check_classification = (
-        ResultClassification.REVIEW_REQUIRED if allowable_stress is None else ResultClassification.PRELIMINARY
+        ResultClassification.PRELIMINARY if stress_check_ready else ResultClassification.REVIEW_REQUIRED
     )
     assumptions = (
         AssumptionRecord(
@@ -379,21 +387,21 @@ def calculate(source: ShaftBearingInput) -> ShaftBearingResult:
             "",
             check_classification,
             ("CHECK-001",),
-            missing_reason if allowable_stress is None else None,
+            check_reason,
         ),
         allowable_stress_margin_pa=_scalar(
             stress_margin,
             "Pa",
             check_classification,
             ("CHECK-003",),
-            missing_reason if allowable_stress is None else None,
+            check_reason,
         ),
         allowable_stress_satisfied=_scalar(
             stress_satisfied,
             "",
             check_classification,
             ("CHECK-002",),
-            missing_reason if allowable_stress is None else None,
+            check_reason,
         ),
         unchecked_items=(
             "bearing_static_safety",

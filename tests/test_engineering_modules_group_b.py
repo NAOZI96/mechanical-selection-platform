@@ -365,6 +365,55 @@ class GroupBContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             synchronous_belt.Input(**values)
 
+    def test_pending_candidate_sources_do_not_produce_comparison_conclusions(self) -> None:
+        cases = (
+            (
+                synchronous_belt,
+                {**belt_values(), "candidate_data_source_status": SourceStatus.PENDING_CONFIRMATION},
+                ("allowable_tension_pass", "maximum_speed_pass"),
+                {"BELT_CHECK-001", "BELT_CHECK-002"},
+                "BELT_CANDIDATE_SOURCE_UNCONFIRMED",
+            ),
+            (
+                motor_drive,
+                {**motor_values(), "candidate_data_source_status": SourceStatus.PENDING_CONFIRMATION},
+                (
+                    "candidate_rated_torque_pass",
+                    "candidate_peak_torque_pass",
+                    "candidate_speed_pass",
+                    "candidate_rated_power_pass",
+                ),
+                {"MOTOR_CHECK-001", "MOTOR_CHECK-002", "MOTOR_CHECK-003", "MOTOR_CHECK-004"},
+                "MOTOR_CANDIDATE_SOURCE_UNCONFIRMED",
+            ),
+            (
+                stepper_motor,
+                {**stepper_values(), "candidate_data_source_status": SourceStatus.PENDING_CONFIRMATION},
+                ("candidate_curve_torque_pass", "candidate_inertia_ratio_pass"),
+                {"STEP_CHECK-001", "STEP_CHECK-002"},
+                "STEP_CANDIDATE_SOURCE_UNCONFIRMED",
+            ),
+            (
+                pneumatic_cylinder,
+                {**cylinder_values(), "candidate_data_source_status": SourceStatus.PENDING_CONFIRMATION},
+                ("candidate_pressure_rating_pass",),
+                {"CYL_CHECK-003"},
+                "CYL_CANDIDATE_SOURCE_UNCONFIRMED",
+            ),
+        )
+
+        for module, payload, fields, comparison_ids, warning_code in cases:
+            with self.subTest(module_id=module.MODULE_ID):
+                result = module.calculate(module.Input(**payload))
+                for field in fields:
+                    scalar = getattr(result, field)
+                    self.assertIsNone(scalar.value)
+                    self.assertIs(scalar.classification, ResultClassification.REVIEW_REQUIRED)
+                    self.assertIn("来源待确认", scalar.reason or "")
+                recorded_ids = {step.formula_id for step in result.calculation_steps}
+                self.assertTrue(comparison_ids.isdisjoint(recorded_ids))
+                self.assertIn(warning_code, {warning.code for warning in result.warnings})
+
 
 if __name__ == "__main__":
     unittest.main()

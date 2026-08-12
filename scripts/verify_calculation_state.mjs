@@ -49,6 +49,7 @@ try {
   await client.send("Runtime.enable");
 
   await verifyWinchWorkbench(client, baseUrl);
+  await verifyWinchMobileSafety(client, baseUrl);
   await navigate(client, `${baseUrl}/modules/transmission_check`);
   await verifyGenericWorkbench(client, baseUrl);
   process.stdout.write("CALCULATION_STATE_BROWSER_CHECK=PASS\n");
@@ -246,6 +247,157 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     "winch restored an old result after a failed request and defensive input mutation",
   );
   await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response("<!doctype html><title>proxy error</title>", {
+          status: 502,
+          headers: {"Content-Type": "text/html", "X-Request-ID": "html-response-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await assertPage(
+    cdp,
+    `document.querySelector("#form-errors").textContent.includes("非 JSON 响应")
+      && document.querySelector("#form-errors").textContent.includes("html-response-fixture")
+      && Boolean(document.querySelector("#form-errors .error-retry"))
+      && document.querySelector("#results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1")).snapshot === null`,
+    "winch did not expose a retryable non-JSON response with its request ID",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response("", {
+          status: 200,
+          headers: {"Content-Type": "application/json", "X-Request-ID": "empty-response-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await assertPage(
+    cdp,
+    `document.querySelector("#form-errors").textContent.includes("空响应")
+      && document.querySelector("#form-errors").textContent.includes("empty-response-fixture")
+      && Boolean(document.querySelector("#form-errors .error-retry"))
+      && document.querySelector("#results").dataset.state === "dirty"
+      && JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1")).snapshot === null`,
+    "winch did not reject and identify an empty JSON response",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response(JSON.stringify({
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "fixture service unavailable",
+            request_id: "json-error-fixture",
+            details: [],
+          },
+        }), {
+          status: 503,
+          headers: {"Content-Type": "application/json", "X-Request-ID": "json-header-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await assertPage(
+    cdp,
+    `document.querySelector("#form-errors").textContent.includes("fixture service unavailable")
+      && document.querySelector("#form-errors").textContent.includes("json-error-fixture")
+      && !document.querySelector("#form-errors").textContent.includes("json-header-fixture")
+      && Boolean(document.querySelector("#form-errors .error-retry"))
+      && document.querySelector("#results").dataset.state === "dirty"
+      && JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1")).snapshot === null`,
+    "winch did not parse the retryable JSON HTTP error or prefer its body request ID",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    window.__realFetch = window.fetch;
+    window.__realSetTimeout = window.setTimeout;
+    window.setTimeout = (handler, delay, ...args) => window.__realSetTimeout(handler, Math.min(delay, 40), ...args);
+    window.fetch = (url, options = {}) => String(url).includes("/calculations")
+      ? new Promise((resolve, reject) => {
+          if (options.signal?.aborted) {
+            reject(new DOMException("aborted", "AbortError"));
+            return;
+          }
+          options.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            {once: true},
+          );
+        })
+      : window.__realFetch(url, options);
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await assertPage(
+    cdp,
+    `document.querySelector("#form-errors").textContent.includes("请求超时")
+      && document.querySelector("#form-errors").textContent.includes("服务端完成状态可能未知")
+      && document.querySelector("#form-errors").textContent.includes("重新发起计算可能生成另一份快照")
+      && document.querySelector("#form-errors .error-context code")?.textContent.length > 0
+      && document.querySelector("#form-errors .error-retry")?.textContent === "重新发起计算"
+      && document.querySelector("#results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1")).snapshot === null`,
+    "winch timeout did not abort, unlock, retain dirty state, and offer a traceable retry",
+  );
+  await cdp.evaluate(`(() => {
+    window.fetch = window.__realFetch;
+    window.setTimeout = window.__realSetTimeout;
+    return true;
+  })()`);
+}
+
+async function verifyWinchMobileSafety(cdp, baseUrl) {
+  for (const width of [390, 430]) {
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await navigate(cdp, `${baseUrl}/modules/winch_drum`);
+    await assertPage(
+      cdp,
+      `(() => {
+        const scopeNote = document.querySelector(".scope-note");
+        const headerStatus = document.querySelector(".header-status");
+        const statusRect = headerStatus.getBoundingClientRect();
+        return getComputedStyle(scopeNote).display !== "none"
+          && scopeNote.getBoundingClientRect().height > 0
+          && getComputedStyle(headerStatus).display !== "none"
+          && statusRect.width > 0
+          && statusRect.left >= 0
+          && statusRect.right <= window.innerWidth
+          && headerStatus.querySelector(".header-status__label").textContent.trim().length > 0
+          && getComputedStyle(headerStatus.querySelector(".header-status__model")).display === "none";
+      })()`,
+      `winch safety boundary or compact release status was not visible at ${width}px`,
+    );
+  }
+  await cdp.send("Emulation.clearDeviceMetricsOverride");
 }
 
 async function verifyGenericWorkbench(cdp, baseUrl) {

@@ -9,8 +9,8 @@
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/winch_drum">{% endif %}
   <title>绞车卷筒与容绳量计算｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
-  <script src="/static/calculator.js?v=20260812.1" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260812.1">
+  <script src="/static/calculator.js?v=20260812.2" defer></script>
 </head>
 <body class="calculator-page">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -23,11 +23,13 @@
       <a class="header-back" href="/#modules">模块中心</a>
       <a class="header-back calculator-docs-link" href="/docs">API 文档</a>
       <div class="header-status">
-        <span></span>
-        {% if module.release_status == "internal_testing" %}内部测试
-        {% elif module.release_status == "engineering_review" %}工程审核中
-        {% else %}工程已放行{% endif %}
-        · 模型 {{ module.calculation_model_version }}
+        <span class="header-status__dot" aria-hidden="true"></span>
+        <span class="header-status__label">
+          {% if module.release_status == "internal_testing" %}内部测试
+          {% elif module.release_status == "engineering_review" %}工程审核中
+          {% else %}工程已放行{% endif %}
+        </span>
+        <span class="header-status__model">· 模型 {{ module.calculation_model_version }}</span>
       </div>
     </div>
   </header>

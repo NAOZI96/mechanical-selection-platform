@@ -43,7 +43,7 @@ class ExpandedModuleApiTests(unittest.TestCase):
                 self.assertIn('content="noindex,nofollow"', page.text)
                 self.assertIn('data-release-status="internal_testing"', page.text)
                 self.assertIn("内部测试（internal_testing）", page.text)
-                self.assertIn('href="/static/app.css?v=20260725.4"', page.text)
+                self.assertIn('href="/static/app.css?v=20260812.1"', page.text)
                 self.assertIn('href="/static/engineering.css?v=20260725.1"', page.text)
                 self.assertIn('src="/static/engineering-calculator.js?v=20260812.1"', page.text)
 
@@ -64,7 +64,8 @@ class ExpandedModuleApiTests(unittest.TestCase):
                 self.assertEqual(created_response.status_code, 201, created_response.text)
                 snapshot = created_response.json()
                 self.assertEqual(snapshot["module_id"], spec.module_id)
-                self.assertEqual(snapshot["module_version"], "1.0.0")
+                self.assertEqual(spec.module_version, "1.0.1")
+                self.assertEqual(snapshot["module_version"], spec.module_version)
                 self.assertEqual(snapshot["calculation_model_version"], spec.calculation_model_version)
                 self.assertEqual(snapshot["release_status"], "internal_testing")
                 self.assertEqual(snapshot["report_context"]["schema_version"], 4)
@@ -106,6 +107,137 @@ class ExpandedModuleApiTests(unittest.TestCase):
                 self.assertIn(spec.report_template_version, compact_pdf_text)
                 self.assertIn("免责声明", compact_pdf_text)
                 self.assertIn("".join(snapshot["disclaimer"].split())[:24], compact_pdf_text)
+
+    def test_pending_candidate_sources_remain_review_required_in_snapshot_html_and_pdf(self) -> None:
+        cases = {
+            "transmission_check": (
+                {"candidate_source_status": "pending_confirmation"},
+                (
+                    "candidate_torque_utilization",
+                    "candidate_torque_satisfied",
+                    "candidate_torque_margin_nm",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003"},
+            ),
+            "gear_drive": (
+                {
+                    "allowable_tangential_force_source_status": "pending_confirmation",
+                    "maximum_pitch_line_speed_source_status": "pending_confirmation",
+                },
+                (
+                    "tangential_force_utilization",
+                    "tangential_force_satisfied",
+                    "pitch_line_speed_utilization",
+                    "pitch_line_speed_satisfied",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003", "CHECK-004"},
+            ),
+            "shaft_bearing": (
+                {"allowable_stress_source_status": "pending_confirmation"},
+                (
+                    "allowable_stress_utilization",
+                    "allowable_stress_satisfied",
+                    "allowable_stress_margin_pa",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003"},
+            ),
+            "lead_screw": (
+                {"candidate_source_status": "pending_confirmation"},
+                (
+                    "candidate_axial_load_utilization",
+                    "candidate_axial_load_satisfied",
+                    "candidate_axial_load_margin_n",
+                ),
+                {"CHECK-004", "CHECK-005", "CHECK-006"},
+            ),
+            "synchronous_belt": (
+                {"candidate_data_source_status": "pending_confirmation"},
+                ("allowable_tension_pass", "maximum_speed_pass"),
+                {"BELT_CHECK-001", "BELT_CHECK-002"},
+            ),
+            "motor_drive": (
+                {"candidate_data_source_status": "pending_confirmation"},
+                (
+                    "candidate_rated_torque_pass",
+                    "candidate_peak_torque_pass",
+                    "candidate_speed_pass",
+                    "candidate_rated_power_pass",
+                ),
+                {"MOTOR_CHECK-001", "MOTOR_CHECK-002", "MOTOR_CHECK-003", "MOTOR_CHECK-004"},
+            ),
+            "stepper_motor": (
+                {"candidate_data_source_status": "pending_confirmation"},
+                ("candidate_curve_torque_pass", "candidate_inertia_ratio_pass"),
+                {"STEP_CHECK-001", "STEP_CHECK-002"},
+            ),
+            "pneumatic_cylinder": (
+                {"candidate_data_source_status": "pending_confirmation"},
+                ("candidate_pressure_rating_pass",),
+                {"CYL_CHECK-003"},
+            ),
+        }
+
+        for spec in EXPANDED_MODULE_SPECS:
+            with self.subTest(module_id=spec.module_id):
+                source_changes, affected_fields, comparison_ids = cases[spec.module_id]
+                result_labels = dict(spec.result_labels)
+                payload = copy.deepcopy(dict(spec.example_input))
+                payload.update(source_changes)
+                response = self.client.post(
+                    f"/api/v1/modules/{spec.module_id}/calculations",
+                    json={"input": payload},
+                )
+                self.assertEqual(response.status_code, 201, response.text)
+                snapshot = response.json()
+
+                self.assertEqual(snapshot["module_version"], "1.0.1")
+                self.assertTrue(
+                    all(snapshot["input_original"][field] == "pending_confirmation" for field in source_changes)
+                )
+                original_rows = {row["key"]: row for row in snapshot["report_context"]["original_inputs"]}
+                for field in source_changes:
+                    self.assertEqual(original_rows[field]["display_value"], "pending_confirmation")
+                recorded_ids = {step["formula_id"] for step in snapshot["steps"]}
+                self.assertTrue(comparison_ids.isdisjoint(recorded_ids))
+
+                report_rows = {row["key"]: row for row in snapshot["report_context"]["result_rows"]}
+                reasons: set[str] = set()
+                for field in affected_fields:
+                    scalar = snapshot["results"][field]
+                    self.assertIsNone(scalar["value"])
+                    self.assertEqual(scalar["classification"], "review_required")
+                    self.assertIn("来源待确认", scalar["reason"])
+                    reasons.add(scalar["reason"])
+
+                    report_row = report_rows[field]
+                    self.assertEqual(report_row["display_value"], "待校核")
+                    self.assertEqual(report_row["classification_label"], "待校核值")
+                    self.assertEqual(report_row["reason"], scalar["reason"])
+
+                fetched = self.client.get(snapshot["links"]["self"])
+                self.assertEqual(fetched.status_code, 200)
+                self.assertEqual(fetched.json(), snapshot)
+
+                html = self.client.get(snapshot["links"]["html_report"])
+                self.assertEqual(html.status_code, 200)
+                self.assertIn("待校核值", html.text)
+                self.assertIn("pending_confirmation", html.text)
+                for field in affected_fields:
+                    self.assertIn(result_labels[field], html.text)
+                for reason in reasons:
+                    self.assertIn(reason, html.text)
+
+                pdf = self.client.get(snapshot["links"]["pdf"])
+                self.assertEqual(pdf.status_code, 200, pdf.text)
+                pdf_text = "".join(
+                    "".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf.content)).pages).split()
+                )
+                self.assertIn("待校核值", pdf_text)
+                self.assertIn("pending_confirmation", pdf_text)
+                for field in affected_fields:
+                    self.assertIn("".join(result_labels[field].split()), pdf_text)
+                for reason in reasons:
+                    self.assertIn("".join(reason.split()), pdf_text)
 
     def test_nested_stage_example_and_generic_json_editor_contract(self) -> None:
         schema = self.client.get("/api/v1/modules/transmission_check/schema").json()

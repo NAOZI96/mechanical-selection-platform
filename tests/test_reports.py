@@ -78,9 +78,10 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         settings = Settings(
             database_path=root / "limited.sqlite3",
             reports_dir=root / "reports",
-            pdf_max_size_bytes=100,
-            persistent_capacity_bytes=100,
+            pdf_max_size_bytes=900_000,
+            persistent_capacity_bytes=1_000_000,
             persistent_stop_fraction=0.85,
+            persistent_min_free_bytes=0,
         )
         with TestClient(create_app(settings)) as client:
             created = client.post(
@@ -95,6 +96,29 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         with closing(sqlite3.connect(settings.database_path)) as connection:
             artifact_count = connection.execute("SELECT COUNT(*) FROM report_artifacts").fetchone()[0]
         self.assertEqual(artifact_count, 0)
+
+    def test_persistent_budget_counts_database_wal_and_reports(self) -> None:
+        root = Path(self.temporary_directory.name) / "budget-components"
+        root.mkdir()
+        database_path = root / "budget.sqlite3"
+        reports_dir = root / "reports"
+        reports_dir.mkdir()
+        database_path.write_bytes(b"d" * 100)
+        Path(f"{database_path}-wal").write_bytes(b"w" * 20)
+        Path(f"{database_path}-shm").write_bytes(b"s" * 5)
+        (reports_dir / "artifact.pdf").write_bytes(b"r" * 30)
+        settings = Settings(
+            database_path=database_path,
+            reports_dir=reports_dir,
+            pdf_max_size_bytes=50,
+            persistent_capacity_bytes=200,
+            persistent_stop_fraction=0.85,
+            persistent_calculation_stop_fraction=0.95,
+            persistent_min_free_bytes=0,
+        )
+        self.assertEqual(settings.persistent_used_bytes(), 155)
+        self.assertFalse(settings.allows_pdf_write())
+        self.assertTrue(settings.allows_calculation_write())
 
     def test_legacy_snapshot_is_labeled_and_uncached_pdf_requires_recalculation(self) -> None:
         created = self._create()

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from app.core.config import Settings
 from app.main import create_app
+from app.persistence.database import initialize_database
 
 
 def valid_payload() -> dict[str, object]:
@@ -69,7 +73,7 @@ class ApiTests(unittest.TestCase):
     def test_health_module_discovery_and_schema(self) -> None:
         self.assertEqual(self.client.get("/health/live").json(), {"status": "live"})
         self.assertEqual(self.client.get("/health/ready").json(), {"status": "ready"})
-        self.assertEqual(self.client.get("/openapi.json").json()["info"]["version"], "0.5.1")
+        self.assertEqual(self.client.get("/openapi.json").json()["info"]["version"], "0.5.2")
         modules = self.client.get("/api/v1/modules").json()
         self.assertEqual(
             {module["module_id"] for module in modules},
@@ -121,7 +125,7 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn("查看验证算例", response.text)
         self.assertNotIn("console-readout", response.text)
         self.assertNotIn("console-note", response.text)
-        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
+        self.assertIn('href="/static/app.css?v=20260812.1"', response.text)
         self.assertIn('src="/static/home-animation.js?v=20260725.1"', response.text)
         self.assertNotIn("/static/vendor/animejs/", response.text)
         self.assertIn("工程审核中", response.text)
@@ -193,8 +197,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn('data-state="idle"', response.text)
         self.assertIn('name="rated_line_pull_kn"', response.text)
         self.assertIn("测试金样仅用于验证页面和公式", response.text)
-        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
-        self.assertIn('src="/static/calculator.js?v=20260812.1"', response.text)
+        self.assertIn('href="/static/app.css?v=20260812.1"', response.text)
+        self.assertIn('src="/static/calculator.js?v=20260812.2"', response.text)
         self.assertIn('href="/#modules">模块中心</a>', response.text)
         script = self.client.get("/static/calculator.js")
         stylesheet = self.client.get("/static/app.css")
@@ -472,7 +476,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.head("/docs").status_code, 200)
         self.assertIn("API 文档｜机械智选", response.text)
         self.assertIn("release_status", response.text)
-        self.assertIn('href="/static/app.css?v=20260725.4"', response.text)
+        self.assertIn('href="/static/app.css?v=20260812.1"', response.text)
         self.assertNotIn("<script", response.text)
         self.assertNotIn('style="', response.text)
         self.assertNotIn("https://", response.text)
@@ -504,6 +508,96 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 411)
         self.assertEqual(response.json()["error"]["code"], "CONTENT_LENGTH_REQUIRED")
+
+    def test_database_write_failure_returns_controlled_retryable_503(self) -> None:
+        with patch(
+            "app.persistence.repository.CalculationRepository.create",
+            side_effect=sqlite3.OperationalError("database or disk is full"),
+        ):
+            response = self.client.post(
+                "/api/v1/modules/winch_drum/calculations",
+                json=valid_payload(),
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "DATABASE_UNAVAILABLE")
+        self.assertEqual(response.headers["retry-after"], "5")
+        self.assertTrue(response.headers["x-request-id"])
+
+    def test_readiness_rejects_runtime_schema_drift(self) -> None:
+        database_path = self.client.app.state.settings.database_path
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.execute("DROP TRIGGER trg_report_artifacts_ready_insert")
+            connection.execute(
+                """
+                CREATE TRIGGER trg_report_artifacts_ready_insert
+                BEFORE INSERT ON report_artifacts
+                BEGIN
+                    SELECT 1;
+                END
+                """
+            )
+            connection.commit()
+        response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, 503)
+
+    def test_startup_rejects_schema_drift_even_with_local_auto_migrate_enabled(self) -> None:
+        root = Path(self.temporary_directory.name) / "startup-schema-drift"
+        database_path = root / "drift.sqlite3"
+        initialize_database(database_path)
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.execute("DROP TRIGGER trg_report_artifacts_ready_insert")
+            connection.commit()
+        drift_client = TestClient(create_app(Settings(database_path=database_path, reports_dir=root / "reports")))
+        try:
+            with self.assertRaisesRegex(RuntimeError, "迁移结构不完整"):
+                drift_client.__enter__()
+        finally:
+            drift_client.close()
+
+    def test_readiness_rejects_runtime_report_directory_write_failure(self) -> None:
+        with patch("pathlib.Path.write_bytes", side_effect=PermissionError("read-only reports")):
+            response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, 503)
+
+    def test_persistent_capacity_limit_stops_new_snapshots_but_keeps_reads_available(self) -> None:
+        root = Path(self.temporary_directory.name) / "capacity-stop"
+        database_path = root / "capacity.sqlite3"
+        reports_dir = root / "reports"
+        with TestClient(
+            create_app(
+                Settings(
+                    database_path=database_path,
+                    reports_dir=reports_dir,
+                    persistent_min_free_bytes=0,
+                )
+            )
+        ) as seed_client:
+            seeded = seed_client.post(
+                "/api/v1/modules/winch_drum/calculations",
+                json=valid_payload(),
+            ).json()
+        settings = Settings(
+            database_path=database_path,
+            reports_dir=reports_dir,
+            auto_migrate_database=False,
+            persistent_capacity_bytes=1,
+            persistent_stop_fraction=0.5,
+            persistent_calculation_stop_fraction=0.75,
+            persistent_min_free_bytes=0,
+        )
+        with TestClient(create_app(settings)) as capacity_client:
+            response = capacity_client.post(
+                "/api/v1/modules/winch_drum/calculations",
+                json=valid_payload(),
+            )
+            existing_snapshot = capacity_client.get(seeded["links"]["self"])
+            readiness = capacity_client.get("/health/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"]["code"], "PERSISTENT_CAPACITY_LIMIT")
+        self.assertEqual(response.headers["retry-after"], "60")
+        self.assertEqual(existing_snapshot.status_code, 200)
+        self.assertEqual(existing_snapshot.json()["calculation_id"], seeded["calculation_id"])
+        self.assertEqual(readiness.status_code, 503)
 
 
 if __name__ == "__main__":

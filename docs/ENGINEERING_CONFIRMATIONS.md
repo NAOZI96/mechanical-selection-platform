@@ -9,7 +9,7 @@
 - 机械计算审核：`conditional_pass`（仅适用于已完成条件审核的首发模块范围）
 - 产品范围确认：`confirmed`
 - 首发模块软件验收：`pass`（本地与目标 Docker 主机的功能、报告、资源、备份和恢复门禁通过）
-- Phase 8 软件验收：`local_pass`（九模块产品界面/API/schema v4/HTML/PDF/旧数据兼容已实现，126 项本地回归已通过）
+- Phase 8 软件验收：`local_pass`（九模块产品界面/API/schema v4/HTML/PDF/旧数据兼容已实现，143 项本地回归已通过）
 - 当前九模块候选版远程部署：`not_deployed`
 - 质量与安全发布：`internal_only`
 - 总发布状态：`internal_testing`

@@ -13,6 +13,7 @@ from app.modules.engineering_common import (
     SourceStatus,
     WarningRecord,
     WarningSeverity,
+    candidate_source_allows_comparison,
 )
 
 from .constants import CALCULATION_MODEL_VERSION, DISCLAIMER, MODULE_ID, MODULE_VERSION
@@ -57,8 +58,10 @@ def _candidate_check(
     *,
     actual: float,
     limit: float | None,
+    source_status: SourceStatus | None,
     formula_id: str,
     missing_reason: str,
+    pending_reason: str,
 ) -> tuple[ScalarResult, bool | None]:
     if limit is None:
         return (
@@ -68,6 +71,17 @@ def _candidate_check(
                 ResultClassification.REVIEW_REQUIRED,
                 formula_id,
                 missing_reason,
+            ),
+            None,
+        )
+    if not candidate_source_allows_comparison(source_status):
+        return (
+            _scalar(
+                None,
+                "",
+                ResultClassification.REVIEW_REQUIRED,
+                formula_id,
+                pending_reason,
             ),
             None,
         )
@@ -280,26 +294,34 @@ def calculate(data: MotorDriveInput) -> MotorDriveResult:
     rated_result, rated_pass = _candidate_check(
         actual=required_rms_torque,
         limit=data.candidate_rated_torque_n_m,
+        source_status=data.candidate_data_source_status,
         formula_id="MOTOR_CHECK-001",
         missing_reason="未提供候选电机额定转矩，无法按所需RMS转矩校核。",
+        pending_reason="候选电机额定转矩来源待确认，确认前不生成额定转矩比较结论。",
     )
     peak_result, peak_pass = _candidate_check(
         actual=required_peak_torque,
         limit=data.candidate_peak_torque_n_m,
+        source_status=data.candidate_data_source_status,
         formula_id="MOTOR_CHECK-002",
         missing_reason="未提供候选电机峰值转矩，无法完成峰值校核。",
+        pending_reason="候选电机峰值转矩来源待确认，确认前不生成峰值转矩比较结论。",
     )
     speed_result, speed_pass = _candidate_check(
         actual=maximum_motor_speed,
         limit=data.candidate_max_speed_rad_s,
+        source_status=data.candidate_data_source_status,
         formula_id="MOTOR_CHECK-003",
         missing_reason="未提供候选电机最大角速度，无法完成转速校核。",
+        pending_reason="候选电机最大角速度来源待确认，确认前不生成转速比较结论。",
     )
     power_result, power_pass = _candidate_check(
         actual=required_power,
         limit=data.candidate_rated_power_w,
+        source_status=data.candidate_data_source_status,
         formula_id="MOTOR_CHECK-004",
         missing_reason="未提供候选电机额定功率，无法完成功率校核。",
+        pending_reason="候选电机额定功率来源待确认，确认前不生成功率比较结论。",
     )
 
     checks = (
@@ -337,7 +359,7 @@ def calculate(data: MotorDriveInput) -> MotorDriveResult:
         ),
     )
     for formula_id, actual, limit, passed, actual_name, limit_name in checks:
-        if limit is None or passed is None:
+        if limit is None:
             warnings.append(
                 _warning(
                     f"{formula_id.replace('-', '_')}_MISSING",
@@ -355,6 +377,8 @@ def calculate(data: MotorDriveInput) -> MotorDriveResult:
                     "补充候选电机制造商额定数据及可追溯版本。",
                 )
             )
+            continue
+        if passed is None:
             continue
         steps.append(
             FormulaStep(
@@ -386,16 +410,20 @@ def calculate(data: MotorDriveInput) -> MotorDriveResult:
                 )
             )
 
-    if (
-        data.candidate_data_source_status is not None
-        and data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
+    if data.candidate_data_source_status is not None and (
+        data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
     ):
+        source_pending = data.candidate_data_source_status is SourceStatus.PENDING_CONFIRMATION
         warnings.append(
             _warning(
                 "MOTOR_CANDIDATE_SOURCE_UNCONFIRMED",
-                WarningSeverity.WARNING,
-                "候选电机数据并非已确认制造商数据",
-                "标量校核结果可用于排查，但不能作为产品额定能力结论。",
+                WarningSeverity.HIGH if source_pending else WarningSeverity.WARNING,
+                "候选电机数据来源待确认" if source_pending else "候选电机数据并非已确认制造商数据",
+                (
+                    "候选来源仍为待确认，四项候选比较结果保持待校核。"
+                    if source_pending
+                    else "标量校核结果可用于排查，但不能作为产品额定能力结论。"
+                ),
                 (
                     "candidate_rated_torque_pass",
                     "candidate_peak_torque_pass",
