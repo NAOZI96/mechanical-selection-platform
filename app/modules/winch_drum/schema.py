@@ -126,6 +126,18 @@ PositiveLayerCount = Annotated[StrictInt, Field(ge=1, le=100)]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 DeadWrapCount = Annotated[StrictInt, Field(ge=2, le=8)]
 
+PROJECT_DEFAULT_SERVICE_FACTOR = 1.25
+PROJECT_DEFAULT_PITCH_FACTOR = 1.10
+PROJECT_DEFAULT_BRAKE_SAFETY_FACTOR = 1.50
+PROJECT_DEFAULT_PULLEY_EFFICIENCY = 0.95
+PROJECT_DEFAULT_DEAD_WRAP_COUNT = 3
+PROJECT_DEFAULT_MINIMUM_DD_RATIO = 20.0
+PROJECT_DEFAULT_MOTOR_DUTY_TYPE = "S3"
+PROJECT_DEFAULT_DUTY_CYCLE_PERCENT = 40.0
+PROJECT_DEFAULT_STARTS_PER_HOUR = 60
+PROJECT_DEFAULT_SUPPLY_VOLTAGE = 380.0
+PROJECT_DEFAULT_SUPPLY_FREQUENCY = 50.0
+
 
 class AssumptionSources(BaseModel):
     """Source status of engineering values supplied by the caller."""
@@ -141,6 +153,7 @@ class AssumptionSources(BaseModel):
     minimum_dd_ratio: SourceStatus = SourceStatus.PROJECT_DEFAULT
     backdrive_efficiency: SourceStatus = SourceStatus.PENDING_CONFIRMATION
     motor_duty_type: SourceStatus = SourceStatus.PROJECT_DEFAULT
+    duty_cycle_percent: SourceStatus = SourceStatus.PROJECT_DEFAULT
     starts_per_hour: SourceStatus = SourceStatus.PROJECT_DEFAULT
     supply_voltage: SourceStatus = SourceStatus.PROJECT_DEFAULT
     supply_frequency: SourceStatus = SourceStatus.PROJECT_DEFAULT
@@ -158,25 +171,25 @@ class WinchDrumInput(BaseModel):
     force_input_location: ForceInputLocation = ForceInputLocation.LOAD_END
     speed_input_location: SpeedInputLocation = SpeedInputLocation.LOAD_END
     force_input_type: ForceInputType = ForceInputType.RATED
-    service_factor: FactorAtLeastOne = 1.25
+    service_factor: FactorAtLeastOne = PROJECT_DEFAULT_SERVICE_FACTOR
     total_efficiency: Annotated[float, Field(gt=0, le=1)]
     motor_rated_speed_rpm: PositiveFloat
     motor_type: Annotated[str, Field(min_length=1, max_length=64)]
     drum_core_diameter_mm: PositiveFloat | None = None
     drum_face_length_mm: PositiveFloat | None = None
     max_layers: PositiveLayerCount
-    pitch_factor: FactorAtLeastOne = 1.10
+    pitch_factor: FactorAtLeastOne = PROJECT_DEFAULT_PITCH_FACTOR
     side_margin_mm: Annotated[float, Field(ge=0)]
     reeving_ratio: FactorAtLeastOne
-    pulley_efficiency: Annotated[float, Field(gt=0, le=1)] = 0.95
+    pulley_efficiency: Annotated[float, Field(gt=0, le=1)] = PROJECT_DEFAULT_PULLEY_EFFICIENCY
     actual_groove_pitch_mm: PositiveFloat | None = None
     actual_usable_groove_count: PositiveLayerCount | None = None
-    brake_safety_factor: FactorAtLeastOne = 1.50
+    brake_safety_factor: FactorAtLeastOne = PROJECT_DEFAULT_BRAKE_SAFETY_FACTOR
     duty_class: Annotated[str, Field(min_length=1, max_length=64)]
     approved_core_ratio: DdRatio | None = None
-    minimum_dd_ratio: DdRatio = 20.0
+    minimum_dd_ratio: DdRatio = PROJECT_DEFAULT_MINIMUM_DD_RATIO
     dead_wrap_count: DeadWrapCount = Field(
-        default=3,
+        default=PROJECT_DEFAULT_DEAD_WRAP_COUNT,
         validation_alias=AliasChoices("dead_wrap_count", "dead_wraps"),
     )
     termination_allowance_m: Annotated[float, Field(ge=0)] = 0.0
@@ -190,11 +203,11 @@ class WinchDrumInput(BaseModel):
     backdrive_efficiency: Annotated[float, Field(gt=0, le=1)] | None = None
     transmission_backdrive_type: TransmissionBackdriveType = TransmissionBackdriveType.REVERSIBLE
     allow_forward_efficiency_as_reverse_approx: StrictBool = False
-    motor_duty_type: Annotated[str, Field(min_length=1, max_length=32)] = "S3"
-    duty_cycle_percent: Annotated[float, Field(gt=0, le=100)] = 40.0
-    starts_per_hour: Annotated[StrictInt, Field(ge=0, le=10000)] = 60
-    supply_voltage: PositiveFloat = 380.0
-    supply_frequency: PositiveFloat = 50.0
+    motor_duty_type: Annotated[str, Field(min_length=1, max_length=32)] = PROJECT_DEFAULT_MOTOR_DUTY_TYPE
+    duty_cycle_percent: Annotated[float, Field(gt=0, le=100)] = PROJECT_DEFAULT_DUTY_CYCLE_PERCENT
+    starts_per_hour: Annotated[StrictInt, Field(ge=0, le=10000)] = PROJECT_DEFAULT_STARTS_PER_HOUR
+    supply_voltage: PositiveFloat = PROJECT_DEFAULT_SUPPLY_VOLTAGE
+    supply_frequency: PositiveFloat = PROJECT_DEFAULT_SUPPLY_FREQUENCY
     motor_power_series_id: MotorPowerSeriesId = MotorPowerSeriesId.PROJECT_DEFAULT_IEC_KW
     assumption_sources: AssumptionSources = Field(default_factory=AssumptionSources)
 
@@ -249,6 +262,101 @@ class WinchDrumInput(BaseModel):
         if not normalized:
             raise ValueError("不能为空")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_project_default_provenance(self) -> WinchDrumInput:
+        """Do not label caller-modified engineering values as project defaults."""
+
+        source_controlled_defaults = (
+            (
+                "service_factor",
+                self.service_factor,
+                PROJECT_DEFAULT_SERVICE_FACTOR,
+                self.assumption_sources.service_factor,
+            ),
+            (
+                "pitch_factor",
+                self.pitch_factor,
+                PROJECT_DEFAULT_PITCH_FACTOR,
+                self.assumption_sources.pitch_factor,
+            ),
+            (
+                "brake_safety_factor",
+                self.brake_safety_factor,
+                PROJECT_DEFAULT_BRAKE_SAFETY_FACTOR,
+                self.assumption_sources.brake_safety_factor,
+            ),
+            (
+                "pulley_efficiency",
+                self.pulley_efficiency,
+                PROJECT_DEFAULT_PULLEY_EFFICIENCY,
+                self.assumption_sources.pulley_efficiency,
+            ),
+            (
+                "dead_wrap_count",
+                self.dead_wrap_count,
+                PROJECT_DEFAULT_DEAD_WRAP_COUNT,
+                self.assumption_sources.dead_wrap_count,
+            ),
+            (
+                "minimum_dd_ratio",
+                self.minimum_dd_ratio,
+                PROJECT_DEFAULT_MINIMUM_DD_RATIO,
+                self.assumption_sources.minimum_dd_ratio,
+            ),
+            (
+                "motor_duty_type",
+                self.motor_duty_type,
+                PROJECT_DEFAULT_MOTOR_DUTY_TYPE,
+                self.assumption_sources.motor_duty_type,
+            ),
+            (
+                "duty_cycle_percent",
+                self.duty_cycle_percent,
+                PROJECT_DEFAULT_DUTY_CYCLE_PERCENT,
+                self.assumption_sources.duty_cycle_percent,
+            ),
+            (
+                "starts_per_hour",
+                self.starts_per_hour,
+                PROJECT_DEFAULT_STARTS_PER_HOUR,
+                self.assumption_sources.starts_per_hour,
+            ),
+            (
+                "supply_voltage",
+                self.supply_voltage,
+                PROJECT_DEFAULT_SUPPLY_VOLTAGE,
+                self.assumption_sources.supply_voltage,
+            ),
+            (
+                "supply_frequency",
+                self.supply_frequency,
+                PROJECT_DEFAULT_SUPPLY_FREQUENCY,
+                self.assumption_sources.supply_frequency,
+            ),
+        )
+        mismatches = [
+            field_name
+            for field_name, value, project_default, source_status in source_controlled_defaults
+            if source_status is SourceStatus.PROJECT_DEFAULT and value != project_default
+        ]
+        if mismatches:
+            fields = "、".join(mismatches)
+            raise ValueError(f"{fields} 已偏离项目默认值，必须明确选择用户输入、待确认或已确认来源")
+
+        fields_without_project_defaults = (
+            ("approved_core_ratio", self.assumption_sources.approved_core_ratio),
+            ("backdrive_efficiency", self.assumption_sources.backdrive_efficiency),
+        )
+        invalid_default_sources = [
+            field_name
+            for field_name, source_status in fields_without_project_defaults
+            if source_status is SourceStatus.PROJECT_DEFAULT
+        ]
+        if invalid_default_sources:
+            fields = "、".join(invalid_default_sources)
+            raise ValueError(f"{fields} 没有项目数值默认，来源不得标记为 project_default")
+        return self
 
     @model_validator(mode="after")
     def validate_drum_width_when_supplied(self) -> WinchDrumInput:

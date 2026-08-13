@@ -13,6 +13,7 @@ from app.modules.engineering_common import (
     SourceStatus,
     WarningRecord,
     WarningSeverity,
+    candidate_source_allows_comparison,
 )
 
 from .constants import CALCULATION_MODEL_VERSION, DISCLAIMER, MODULE_ID, MODULE_VERSION
@@ -235,6 +236,7 @@ def calculate(data: StepperMotorInput) -> StepperMotorResult:
             )
         )
 
+    candidate_source_ready = candidate_source_allows_comparison(data.candidate_data_source_status)
     if data.candidate_curve_point_torque_n_m is None:
         curve_result = _scalar(
             None,
@@ -252,6 +254,14 @@ def calculate(data: StepperMotorInput) -> StepperMotorResult:
                 ("candidate_curve_torque_pass",),
                 "提供工作点速度、可用转矩、显式速度容差和可追溯曲线版本。",
             )
+        )
+    elif not candidate_source_ready:
+        curve_result = _scalar(
+            None,
+            "",
+            ResultClassification.REVIEW_REQUIRED,
+            "STEP_CHECK-001",
+            "候选曲线工作点来源待确认，确认前不生成转矩比较结论。",
         )
     else:
         curve_pass = required_peak_torque <= data.candidate_curve_point_torque_n_m
@@ -305,6 +315,14 @@ def calculate(data: StepperMotorInput) -> StepperMotorResult:
                 "提供候选电机/驱动器对应的允许惯量比及其适用条件。",
             )
         )
+    elif not candidate_source_ready:
+        inertia_check_result = _scalar(
+            None,
+            "",
+            ResultClassification.REVIEW_REQUIRED,
+            "STEP_CHECK-002",
+            "候选允许惯量比来源待确认，确认前不生成惯量比比较结论。",
+        )
     else:
         inertia_pass = inertia_ratio <= data.candidate_allowable_inertia_ratio
         inertia_check_result = _scalar(
@@ -339,16 +357,20 @@ def calculate(data: StepperMotorInput) -> StepperMotorResult:
                 )
             )
 
-    if (
-        data.candidate_data_source_status is not None
-        and data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
+    if data.candidate_data_source_status is not None and (
+        data.candidate_data_source_status is not SourceStatus.MANUFACTURER_DATA
     ):
+        source_pending = data.candidate_data_source_status is SourceStatus.PENDING_CONFIRMATION
         warnings.append(
             _warning(
                 "STEP_CANDIDATE_SOURCE_UNCONFIRMED",
-                WarningSeverity.WARNING,
-                "候选数据并非已确认制造商数据",
-                "工作点和惯量比可以进行算术比较，但不能形成产品能力放行结论。",
+                WarningSeverity.HIGH if source_pending else WarningSeverity.WARNING,
+                "候选数据来源待确认" if source_pending else "候选数据并非已确认制造商数据",
+                (
+                    "候选来源仍为待确认，曲线工作点与惯量比比较结果保持待校核。"
+                    if source_pending
+                    else "工作点和惯量比可以进行算术比较，但不能形成产品能力放行结论。"
+                ),
                 ("candidate_curve_torque_pass", "candidate_inertia_ratio_pass"),
                 "用指定电压、电流、驱动器组合下的制造商曲线和惯量指南替换当前数据。",
             )

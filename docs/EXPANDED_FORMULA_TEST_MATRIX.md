@@ -1,24 +1,24 @@
 # 八个扩展模块公式测试矩阵
 
-文档版本：0.1.0
+文档版本：0.1.1
 适用规格：[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md)
 
-本矩阵把八个扩展模块当前实现的每个公式 ID 映射到正常金样、边界/非法输入和候选数据缺失路径。公式 ID 是模块内编号；矩阵中的唯一定位为 `module_id + formula_id`。
+本矩阵把八个扩展模块当前实现的每个公式 ID 映射到正常金样、边界/非法输入和候选数据缺失/来源待确认路径。公式 ID 是模块内编号；矩阵中的唯一定位为 `module_id + formula_id`。
 
-`PASS` 表示该公式在独立算术金样路径中执行，且所属模块同时有输入边界、派生数值安全和候选缺失证据。部分中间步骤由最终量间接约束，并非每一行都有单独的数值断言；这不改变公式清单，但评审时应结合持久化 `calculation_steps` 检查。自动化通过不代表参数来源、适用标准或机械设计获批。
+`PASS` 表示该公式在独立算术金样路径中执行，且所属模块同时有输入边界、派生数值安全、候选缺失和候选来源待确认证据。来源待确认时，候选比较结果必须为 `null/review_required`，且快照不得记录对应比较步骤。部分中间步骤由最终量间接约束，并非每一行都有单独的数值断言；这不改变公式清单，但评审时应结合持久化 `calculation_steps` 检查。自动化通过不代表参数来源、适用标准或机械设计获批。
 
 ## 1. 覆盖汇总
 
-| 模块 | 计算模型 | 公式实例数 | 正常金样 | 边界/非法 | 缺候选 `review_required` |
+| 模块 | 计算模型 | 公式实例数 | 正常金样 | 边界/非法 | 缺失/待确认候选 `review_required` |
 |---|---|---:|---|---|---|
-| `transmission_check` | `transmission_check.calc.1.0.0` | 19 | PASS | PASS | PASS |
-| `gear_drive` | `gear_drive.calc.1.0.0` | 17 | PASS | PASS | PASS |
-| `shaft_bearing` | `shaft_bearing.calc.1.0.0` | 12 | PASS | PASS | PASS |
-| `lead_screw` | `lead_screw.calc.1.0.0` | 20 | PASS | PASS | PASS |
-| `synchronous_belt` | `synchronous_belt.calc.1.0.0` | 12 | PASS | PASS | PASS |
-| `motor_drive` | `motor_drive.calc.1.0.0` | 16 | PASS | PASS | PASS |
-| `stepper_motor` | `stepper_motor.calc.1.0.0` | 13 | PASS | PASS | PASS |
-| `pneumatic_cylinder` | `pneumatic_cylinder.calc.1.0.0` | 17 | PASS | PASS | PASS |
+| `transmission_check` | `transmission_check.calc.1.0.1` | 19 | PASS | PASS | PASS |
+| `gear_drive` | `gear_drive.calc.1.0.1` | 17 | PASS | PASS | PASS |
+| `shaft_bearing` | `shaft_bearing.calc.1.0.1` | 12 | PASS | PASS | PASS |
+| `lead_screw` | `lead_screw.calc.1.0.1` | 20 | PASS | PASS | PASS |
+| `synchronous_belt` | `synchronous_belt.calc.1.0.1` | 12 | PASS | PASS | PASS |
+| `motor_drive` | `motor_drive.calc.1.0.1` | 16 | PASS | PASS | PASS |
+| `stepper_motor` | `stepper_motor.calc.1.0.1` | 13 | PASS | PASS | PASS |
+| `pneumatic_cylinder` | `pneumatic_cylinder.calc.1.0.1` | 17 | PASS | PASS | PASS |
 | **合计** | — | **126** | **PASS** | **PASS** | **PASS** |
 
 “126”是八模块公式实例总数，不是全平台总数；绞车模块公式另见 [`FORMULA_TEST_MATRIX.md`](FORMULA_TEST_MATRIX.md)。
@@ -48,6 +48,7 @@
 | `LS-B` | `LeadScrewTests.test_geometry_formula_and_candidate_cross_field_boundaries` |
 | `LS-M` | `LeadScrewTests.test_missing_candidate_is_review_required` |
 | `LS-R` | `LeadScrewTests.test_repeat_execution_is_identical` |
+| `A-PENDING` | `PendingCandidateSourceContractTests.test_pending_candidate_sources_do_not_produce_comparison_conclusions` |
 
 ### 2.2 B 组
 
@@ -74,8 +75,9 @@
 | `B-R` | `GroupBContractTests.test_calculations_are_exactly_repeatable` |
 | `B-C` | `GroupBContractTests.test_public_contract_and_audit_payload_are_complete` |
 | `B-BASIS` | `GroupBContractTests.test_common_basis_reference_is_strictly_non_blank` |
+| `B-PENDING` | `GroupBContractTests.test_pending_candidate_sources_do_not_produce_comparison_conclusions` |
 
-API、快照、HTML 和 PDF 的八模块贯通证据另见 `tests/test_expanded_module_api.py`。
+API、快照、HTML 和 PDF 的八模块贯通证据另见 `ExpandedModuleApiTests.test_pending_candidate_sources_remain_review_required_in_snapshot_html_and_pdf`。该用例还验证原始候选值与 `pending_confirmation` 保留在快照中，同源报告仅展示“待校核/待校核值”及具体原因。
 
 ### 2.3 派生数值安全
 

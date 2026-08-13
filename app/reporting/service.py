@@ -61,7 +61,19 @@ class PdfReportService:
             raise RuntimeError("报告目录不可写") from exc
 
     def is_ready(self) -> bool:
-        return PDF_FONT_PATH.is_file() and self._reports_root.is_dir() and self._temporary_root.is_dir()
+        if not PDF_FONT_PATH.is_file() or not self._reports_root.is_dir() or not self._temporary_root.is_dir():
+            return False
+        probe_path = self._temporary_root / f".health-{uuid4()}"
+        try:
+            probe_path.write_bytes(b"ready")
+            probe_path.unlink()
+            return True
+        except OSError:
+            try:
+                probe_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
 
     def get_or_generate(self, snapshot: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
         cached = self._validated_cached_artifact(snapshot)
@@ -236,13 +248,11 @@ class PdfReportService:
 
     def _check_capacity(self) -> None:
         self._reports_root.mkdir(parents=True, exist_ok=True)
-        used_bytes = sum(path.stat().st_size for path in self._reports_root.rglob("*") if path.is_file())
-        stop_bytes = int(self._settings.persistent_capacity_bytes * self._settings.persistent_stop_fraction)
-        if used_bytes + self._settings.pdf_max_size_bytes > stop_bytes:
+        if not self._settings.allows_pdf_write():
             raise ReportServiceError(
                 status_code=503,
                 code="REPORT_CAPACITY_LIMIT",
-                message="报告目录已达到持久化停止阈值，计算功能仍可继续使用",
+                message="数据库与报告的持久化用量或磁盘余量已达到 PDF 停止阈值，计算功能仍可继续使用",
             )
 
     def _safe_artifact_path(self, relative_path: Any) -> Path | None:

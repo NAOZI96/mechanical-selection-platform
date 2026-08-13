@@ -1,6 +1,6 @@
 # 系统架构设计
 
-文档版本：0.5.0
+文档版本：0.5.3
 适用阶段：Phase 8 九模块产品候选版、发布状态数据治理与工程发布门禁
 
 ## 1. 架构目标与约束
@@ -14,7 +14,7 @@
   └─ HTTP/HTML/JSON
       └─ FastAPI 单 worker
           ├─ Web 层：可筛选平台主页、统一模块页面、CSP-safe 文档、静态资源、安全/缓存头、错误页
-          ├─ API 层：模块发现、校验、计算、报告查询
+          ├─ API 层：模块发现、校验、幂等计算创建、报告查询
           ├─ 应用服务：SI 规范化、计算编排、快照保存、报告编排
           ├─ 模块注册表
           │   ├─ winch_drum（engineering_review）
@@ -69,7 +69,7 @@ data/
 
 `/docs` 与 `/redoc` 由同一个 Jinja2 模板服务端渲染，端点清单来自 `app.openapi()`；页面无需内联或第三方脚本，可在严格 CSP 下直接阅读。模块页面仍使用 Jinja2 外壳和同源原生 JavaScript 调用统一 API；公式、SI 换算、工程校验和警告只存在于后端模块。
 
-计算事务物化 snapshot schema v4 和 report context schema v4，并保存计算当时的工程发布状态；HTML 与 PDF 只消费该快照/DTO。PDF 由受超时控制的单独 Python 子进程生成，完成后原子写入 `reports/`，SQLite 只保存状态、相对路径、哈希和大小。当前模板版本为 `winch_drum.report.1.2.1` 及八模块各自的 `*.report.1.0.1`。
+计算事务物化 snapshot schema v4 和 report context schema v4，并保存计算当时的工程发布状态；HTML 与 PDF 只消费该快照/DTO。Platform 0.5.3 可在同一事务中保存可选幂等键及规范化请求指纹，以 `(module_id, idempotency_key)` 部分唯一索引防止重复落库：同键同指纹读取原快照，同键异指纹返回冲突，无键路径仍主动新建。该能力不进入工程快照或报告 DTO，因此计算模型、两个 schema v4 和报告模板版本不变。PDF 由受超时控制的单独 Python 子进程生成，完成后原子写入 `reports/`，SQLite 只保存状态、相对路径、哈希和大小。当前模板版本为 `winch_drum.report.1.2.1` 及八模块各自的 `*.report.1.0.1`。
 
 ## 4. 模块注册契约
 
@@ -128,7 +128,7 @@ data/
 - 单 Web worker，避免多进程内存复制与 SQLite 写争用。
 - 启用 WAL、foreign keys、busy timeout；事务短小，计算和 PDF 渲染不放在事务内。
 - 每请求独立连接/会话；失败回滚。
-- 有序迁移当前为 `001`～`005`；`005_calculation_release_status.sql` 只增加允许为空的受约束 `release_status` 列，以保留迁移前记录“当时状态未知”的事实。生产环境先在线备份再迁移，Web 启动时只接受完整迁移清单。
+- 有序迁移当前为 `001`～`006`；每份 SQL 与对应 `schema_migrations` 登记在同一个显式 SQLite 事务内，任一语句或登记失败均整体回滚。`005_calculation_release_status.sql` 增加允许为空的受约束 `release_status` 列，以保留迁移前记录“当时状态未知”的事实；`006_calculation_idempotency.sql` 增加可空幂等键、请求指纹和模块内部分唯一索引。生产环境先在线备份再迁移；启动除核对迁移清单外，还把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对并执行 `quick_check`。
 - PDF 通过进程内 `BoundedSemaphore(1)` 限制并发；额外请求立即返回受控 `429`。单 worker 同步等待受 30 s 超时保护的渲染子进程，失败不会删除计算快照。
 - 不将大型 PDF 二进制写入 SQLite，只保存相对路径、哈希、大小和状态。
 - 有效遗留缓存 PDF 可在完整性校验后继续下载并带 `legacy_unknown` 响应标记；旧快照没有有效缓存时返回 `409 LEGACY_RELEASE_STATUS_MISSING`，不进入渲染子进程。
@@ -141,17 +141,17 @@ data/
 - 静态资源响应 `public, max-age=86400`；所有计算/报告路径响应 `no-store` 并禁止搜索引擎索引；其余页面/API 响应 `no-cache`。每个响应携带请求 ID。
 - 容器使用非 root 用户、只读应用文件系统（数据/报告/临时目录单独可写）、最小镜像和固定依赖版本。
 - 不暴露 SQLite 与管理端口；Docker Compose 不接管或修改现有服务网络，端口默认仅绑定 `127.0.0.1`。
-- 应用启动先验证固定 PDF 字体存在，并创建报告临时目录、执行写入/删除探针；失败即不接收流量。健康端点保持浅层，不触发计算、完整数据库检查或 PDF 试渲染。
+- 应用启动验证固定 PDF 字体、报告临时目录写入/删除及 SQLite `quick_check`/实际 schema。健康端点不触发工程计算或 PDF 试渲染，但执行可回滚的主库写探针、报告临时文件写删以及容量/磁盘余量判断；失去写能力时返回 503，历史只读路由仍可用于恢复与导出。
 
 ## 9. 可观测性
 
-- 结构化日志字段：request_id、module_id、model_version、duration_ms、status、warning_count；不记录完整用户输入。
-- 指标可先从日志获得：请求量、错误率、计算延迟、PDF 延迟、数据库大小、报告目录大小和磁盘余量。
-- `/health/live` 只确认进程；`/health/ready` 检查注册表非空、SQLite 关键表/完整迁移清单及 `SELECT 1`，以及固定字体、报告根目录和临时目录存在。它不替代启动时写探针、`PRAGMA quick_check`、备份恢复或报告冒烟。
+- 正常计算完成时输出结构化 INFO 日志字段：`request_id`、`module_id`、`model_version`、`duration_ms`、`status`、`warning_count`、`idempotency_replayed`；不记录完整用户输入或幂等键原文。异常和数据库不可用日志继续携带请求 ID 与路径。
+- 当前可从完成/错误日志获得计算请求量、结果状态、警告数量、幂等重放量、错误率和计算延迟；PDF 延迟、数据库/报告大小与磁盘余量仍须从对应运行时采样取得，不把关闭的 Uvicorn access log 当作指标来源。
+- `/health/live` 只确认进程；`/health/ready` 检查注册表、SQLite 迁移与实际 schema、回滚式写探针、固定字体、报告临时目录写删、新快照容量阈值及相关文件系统余量。它不重复启动时的 `PRAGMA quick_check`，也不替代备份恢复、计算或报告冒烟。
 
 ## 10. 资源预算
 
-冻结部署限制：Web 容器内存上限 512 MiB、预留 128 MiB，memory+swap 上限同为 512 MiB（即容器交换区为 0）；CPU 上限 1 核；单 worker；PDF 并发 1、超时 30 s；请求体上限 1 MiB；单 PDF 20 MiB；持久化总容量 5 GiB、85% 停止新 PDF。Docker JSON 日志每文件 10 MiB、最多 5 个。
+冻结部署限制：Web 容器内存上限 512 MiB、预留 128 MiB，memory+swap 上限同为 512 MiB（即容器交换区为 0）；CPU 上限 1 核；单 worker；PDF 并发 1、超时 30 s；请求体上限 1 MiB；单 PDF 20 MiB；SQLite/WAL/SHM/报告共享 5 GiB 预算，85% 停止新 PDF、95% 停止新增快照，且两类写入都保留至少 512 MiB 文件系统余量。Docker JSON 日志每文件 10 MiB、最多 5 个。
 
 本地基线中，1000 次计算 p95 30.489 ms、连续 20 份 PDF p95 594.880 ms，父进程与 PDF 子进程合计峰值 RSS 149,626,880 B；5 个并发 PDF 请求只有 1 个渲染，其余受控 `429`。目标 Docker 主机复验为计算 p95 23.895 ms、PDF p95 1.108 s、Web cgroup 峰值 186,097,664 B、容器交换区 0，既有服务保持健康。资源超限时优先拒绝 PDF，不影响计算页面与同机服务。
 
@@ -165,5 +165,6 @@ data/
 - SQLite 备份、恢复、WAL 清理和磁盘不足故障均有演练记录。
 - `/docs` 与 `/redoc` 在严格 CSP 下无需外部/内联脚本即可阅读；安全头和三类缓存策略有逐路由回归。
 - snapshot/report context schema v4 保存计算时发布状态；有效遗留缓存 PDF 可读，无有效缓存时稳定返回 409 且不重算。
+- 可选 `Idempotency-Key` 在模块内防止相同规范请求重复落库，异请求复用键返回 409；未提供键时仍生成新的 calculation ID。
 
-当前 Phase 8 候选版新增可空迁移 `005_calculation_release_status.sql`，但没有新增常驻服务，也没有改变工程公式或计算模型版本。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005` 与当前九模块版本的目标机复验。
+当前 Platform 0.5.3 候选版包含 Phase 8 的 `005_calculation_release_status.sql` 以及新的 `006_calculation_idempotency.sql`，但没有新增常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块因待确认候选比较门禁升级为各自 `*.calc.1.0.1`。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005`、`006` 与当前九模块版本的目标机复验。

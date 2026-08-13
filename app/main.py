@@ -3,30 +3,53 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from html import escape
-from typing import Any
+from time import perf_counter
+from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import PROJECT_ROOT, Settings
 from app.modules.catalog import build_module_catalog
 from app.modules.registry import ModuleRegistry, default_registry
-from app.persistence.database import database_is_ready, initialize_database
+from app.persistence.database import database_is_ready, database_is_writable, initialize_database
 from app.persistence.repository import CalculationRepository
 from app.reporting.context import build_report_context
 from app.reporting.models import ReportContext
 from app.reporting.service import PdfReportService, ReportServiceError
-from app.services.calculations import CalculationService
+from app.services.calculations import CalculationService, IdempotencyKeyReusedError
 
 LOGGER = logging.getLogger(__name__)
+
+_SQLITE_UNAVAILABLE_PRIMARY_CODES = {
+    sqlite3.SQLITE_BUSY,
+    sqlite3.SQLITE_LOCKED,
+    sqlite3.SQLITE_READONLY,
+    sqlite3.SQLITE_IOERR,
+    sqlite3.SQLITE_CORRUPT,
+    sqlite3.SQLITE_FULL,
+    sqlite3.SQLITE_CANTOPEN,
+    sqlite3.SQLITE_PROTOCOL,
+    sqlite3.SQLITE_NOTADB,
+}
+
+
+class CalculationRequest(BaseModel):
+    """Strict generic envelope; module-specific input remains registry-driven."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: dict[str, Any]
+    assumption_sources: dict[str, Any] | None = None
 
 
 def create_app(settings: Settings | None = None, registry: ModuleRegistry | None = None) -> FastAPI:
@@ -37,14 +60,14 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
     async def lifespan(_: FastAPI):
         if app_settings.auto_migrate_database:
             initialize_database(app_settings.database_path)
-        elif not database_is_ready(app_settings.database_path):
-            raise RuntimeError("数据库缺失或迁移未完成；生产环境必须先执行受控迁移")
+        if not database_is_ready(app_settings.database_path):
+            raise RuntimeError("数据库缺失、损坏或迁移结构不完整；生产环境必须先执行受控迁移")
         report_service.validate_runtime()
         yield
 
     app = FastAPI(
         title="机械智选 · Mechanical Selection Platform",
-        version="0.5.0",
+        version="0.5.3",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -149,6 +172,30 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                 message,
                 request.state.request_id,
             )
+        return _apply_response_controls(response, request, app_settings)
+
+    @app.exception_handler(sqlite3.Error)
+    async def database_error_handler(request: Request, exc: sqlite3.Error):
+        sqlite_error_code = getattr(exc, "sqlite_errorcode", None)
+        primary_code = sqlite_error_code & 0xFF if isinstance(sqlite_error_code, int) else None
+        is_unavailable = primary_code in _SQLITE_UNAVAILABLE_PRIMARY_CODES or (
+            primary_code is None and isinstance(exc, sqlite3.OperationalError)
+        )
+        if not is_unavailable:
+            return await unhandled_error_handler(request, exc)
+        LOGGER.error(
+            "Database operation failed request_id=%s path=%s sqlite_error=%s",
+            request.state.request_id,
+            request.url.path,
+            getattr(exc, "sqlite_errorname", exc.__class__.__name__),
+        )
+        response = _error(
+            503,
+            "DATABASE_UNAVAILABLE",
+            "数据库暂不可写或不可用，未保存本次计算；请稍后重试",
+            request.state.request_id,
+        )
+        response.headers["Retry-After"] = "5"
         return _apply_response_controls(response, request, app_settings)
 
     def module_or_404(module_id: str):
@@ -283,6 +330,8 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         if (
             not active_registry.list()
             or not database_is_ready(app_settings.database_path, verify_integrity=False)
+            or not database_is_writable(app_settings.database_path)
+            or not app_settings.allows_calculation_write()
             or not report_service.is_ready()
         ):
             raise HTTPException(status_code=503, detail="应用尚未就绪")
@@ -322,18 +371,82 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         }
 
     @app.post("/api/v1/modules/{module_id}/calculations", status_code=201)
-    def create_calculation(module_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    def create_calculation(
+        module_id: str,
+        payload: CalculationRequest,
+        request: Request,
+        response: Response,
+        idempotency_key: Annotated[
+            str | None,
+            Header(
+                alias="Idempotency-Key",
+                min_length=1,
+                max_length=128,
+                pattern=r"^[A-Za-z0-9._~-]+$",
+            ),
+        ] = None,
+    ) -> Any:
+        started_at = perf_counter()
         module_or_404(module_id)
-        raw_input = payload.get("input")
-        if not isinstance(raw_input, dict):
+        raw_input = payload.input
+        if "assumption_sources" in payload.model_fields_set and "assumption_sources" in raw_input:
             return _validation_error(
                 request.state.request_id,
-                [{"loc": ("body", "input"), "msg": "必须提供 input 对象", "type": "missing"}],
+                [
+                    {
+                        "loc": ("body", "assumption_sources"),
+                        "msg": "assumption_sources 不得同时出现在请求顶层和 input 内",
+                        "type": "value_error",
+                    }
+                ],
             )
-        if "assumption_sources" in payload:
-            raw_input = {**raw_input, "assumption_sources": payload["assumption_sources"]}
+        if "assumption_sources" in payload.model_fields_set:
+            raw_input = {**raw_input, "assumption_sources": payload.assumption_sources}
         try:
-            return service.create(module_id, raw_input, request.state.request_id)
+            replayed_snapshot = (
+                service.replay(module_id, raw_input, idempotency_key=idempotency_key)
+                if idempotency_key is not None
+                else None
+            )
+            if replayed_snapshot is not None:
+                response.headers["Idempotency-Replayed"] = "true"
+                _log_calculation_success(
+                    replayed_snapshot,
+                    request_id=request.state.request_id,
+                    started_at=started_at,
+                    idempotency_replayed=True,
+                )
+                return replayed_snapshot
+            if not app_settings.allows_calculation_write():
+                capacity_response = _error(
+                    503,
+                    "PERSISTENT_CAPACITY_LIMIT",
+                    "持久化空间已达到计算停止阈值，未保存本次计算；请联系维护人员清理空间",
+                    request.state.request_id,
+                )
+                capacity_response.headers["Retry-After"] = "60"
+                return capacity_response
+            snapshot, replayed = service.create_idempotent(
+                module_id,
+                raw_input,
+                request.state.request_id,
+                idempotency_key=idempotency_key,
+            )
+            response.headers["Idempotency-Replayed"] = str(replayed).lower()
+            _log_calculation_success(
+                snapshot,
+                request_id=request.state.request_id,
+                started_at=started_at,
+                idempotency_replayed=replayed,
+            )
+            return snapshot
+        except IdempotencyKeyReusedError:
+            return _error(
+                409,
+                "IDEMPOTENCY_KEY_REUSED",
+                "该 Idempotency-Key 已用于同一模块的其他规范化请求",
+                request.state.request_id,
+            )
         except ValidationError as exc:
             return _validation_error(request.state.request_id, exc.errors())
 
@@ -402,6 +515,26 @@ def _error(status_code: int, code: str, message: str, request_id: str) -> JSONRe
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": message, "request_id": request_id, "details": []}},
+    )
+
+
+def _log_calculation_success(
+    snapshot: dict[str, Any],
+    *,
+    request_id: str,
+    started_at: float,
+    idempotency_replayed: bool,
+) -> None:
+    LOGGER.info(
+        "Calculation completed request_id=%s module_id=%s model_version=%s duration_ms=%.3f "
+        "status=%s warning_count=%d idempotency_replayed=%s",
+        request_id,
+        snapshot["module_id"],
+        snapshot["calculation_model_version"],
+        (perf_counter() - started_at) * 1000.0,
+        snapshot["status"],
+        len(snapshot["warnings"]),
+        str(idempotency_replayed).lower(),
     )
 
 

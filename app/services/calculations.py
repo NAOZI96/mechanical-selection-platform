@@ -13,6 +13,10 @@ from app.modules.registry import ModuleDefinition
 from app.persistence.repository import CalculationRepository
 
 
+class IdempotencyKeyReusedError(RuntimeError):
+    """Raised when one module-scoped idempotency key is reused for another request."""
+
+
 class CalculationService:
     def __init__(
         self,
@@ -23,8 +27,53 @@ class CalculationService:
         self._module_lookup = module_lookup
 
     def create(self, module_id: str, raw_input: dict[str, Any], request_id: str) -> dict[str, Any]:
+        snapshot, _ = self.create_idempotent(module_id, raw_input, request_id, idempotency_key=None)
+        return snapshot
+
+    def replay(
+        self,
+        module_id: str,
+        raw_input: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        """Return a committed replay before write-capacity checks, if one exists."""
+
         module = self._module_lookup(module_id)
         validated_input = module.input_model.model_validate(raw_input)
+        request_fingerprint = _request_fingerprint(
+            validated_input.model_dump(mode="json"),
+            module.calculation_model_version,
+        )
+        existing = self._repository.get_by_idempotency_key(module.module_id, idempotency_key)
+        if existing is None:
+            return None
+        snapshot, persisted_fingerprint = existing
+        if persisted_fingerprint != request_fingerprint:
+            raise IdempotencyKeyReusedError
+        return snapshot
+
+    def create_idempotent(
+        self,
+        module_id: str,
+        raw_input: dict[str, Any],
+        request_id: str,
+        *,
+        idempotency_key: str | None,
+    ) -> tuple[dict[str, Any], bool]:
+        module = self._module_lookup(module_id)
+        validated_input = module.input_model.model_validate(raw_input)
+        request_fingerprint = _request_fingerprint(
+            validated_input.model_dump(mode="json"),
+            module.calculation_model_version,
+        )
+        if idempotency_key is not None:
+            existing = self._repository.get_by_idempotency_key(module.module_id, idempotency_key)
+            if existing is not None:
+                snapshot, persisted_fingerprint = existing
+                if persisted_fingerprint != request_fingerprint:
+                    raise IdempotencyKeyReusedError
+                return snapshot, True
         result = module.calculate(validated_input)
         if not isinstance(result, module.result_model):
             raise TypeError(f"模块 {module_id} 返回了错误的结果模型")
@@ -65,8 +114,16 @@ class CalculationService:
         }
         snapshot["report_context"] = module.build_report_context(snapshot).model_dump(mode="json")
         input_hash = _input_hash(input_si, module.calculation_model_version)
-        self._repository.create(snapshot, input_hash, request_id)
-        return snapshot
+        persisted = self._repository.create(
+            snapshot,
+            input_hash,
+            request_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint if idempotency_key is not None else None,
+        )
+        if not persisted.fingerprint_matches:
+            raise IdempotencyKeyReusedError
+        return persisted.snapshot, persisted.replayed
 
     def get(self, calculation_id: str) -> dict[str, Any] | None:
         return self._repository.get(calculation_id)
@@ -75,6 +132,17 @@ class CalculationService:
 def _input_hash(input_si: dict[str, Any], model_version: str) -> str:
     canonical = json.dumps(
         {"calculation_model_version": model_version, "input_si": input_si},
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _request_fingerprint(input_original: dict[str, Any], model_version: str) -> str:
+    canonical = json.dumps(
+        {"calculation_model_version": model_version, "input": input_original},
         ensure_ascii=False,
         allow_nan=False,
         sort_keys=True,

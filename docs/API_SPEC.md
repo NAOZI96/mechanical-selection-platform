@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.5.0
+文档版本：0.5.3
 API 版本：`v1`  
 已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
@@ -10,7 +10,8 @@ API 版本：`v1`
 - 所有工程字段使用明确带单位的名称。请求采用显示单位字段；响应同时提供原始输入、SI 输入和带单位结果。
 - 数值只接受 JSON number，不接受数值字符串、NaN 或 Infinity。
 - 计算成功状态：`completed` 或 `completed_with_warnings`；字段可部分不可计算时，用 `null + classification=review_required`，不得伪造 0。
-- 相同输入不保证返回相同 calculation ID，但在相同 `calculation_model_version` 下应有相同规范化结果。
+- 未提供 `Idempotency-Key` 时，相同输入不保证返回相同 calculation ID；在相同 `calculation_model_version` 下仍应有相同规范化结果。
+- `Idempotency-Key` 是可选的 1～128 字符 URL-safe token，只允许 ASCII 字符 `[A-Za-z0-9._~-]`；空值、超长值或其他字符由请求校验返回 `422`。作用域固定为 `(module_id, idempotency_key)`，不能跨模块共享占位。
 - 错误结构统一，HTTP 状态码不混入工程警告。
 - `available=true` 只表示模块软件可进入；工程发布状态以 `release_status` 为准。当前 `winch_drum=engineering_review`，其余八模块均为 `internal_testing`。
 
@@ -19,7 +20,7 @@ API 版本：`v1`
 ### 2.1 健康检查
 
 - `GET /health/live`：进程存活，不访问重资源。
-- `GET /health/ready`：注册表非空、SQLite 关键表及 `001`～`005` 迁移清单齐全并可执行 `SELECT 1`，且固定 PDF 字体、报告目录和临时目录存在。该端点是浅层就绪检查，不执行 `PRAGMA quick_check`、目录写探针、计算或 PDF 试渲染。
+- `GET /health/ready`：注册表非空；SQLite `001`～`006` 台账完整，且实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 一致，并可完成回滚式主库写探针；固定 PDF 字体可用，报告临时目录可完成写入/删除；持久化用量低于新计算停止阈值且磁盘保留最小余量。该端点不执行 `PRAGMA quick_check`、工程计算或 PDF 试渲染；完整 `quick_check` 在启动和受控迁移检查中执行。
 
 ### 2.1A Web 页面
 
@@ -63,6 +64,15 @@ API 版本：`v1`
 
 九个已注册模块都使用该通用路径。以下仍以 `winch_drum` 请求体说明首发模块的具体字段：
 
+可选幂等请求头：
+
+- 首次收到有效 `Idempotency-Key` 时创建快照，返回 `201 Created` 与 `Idempotency-Replayed: false`。
+- 同一 `(module_id, key)` 再次提交相同规范化请求时不重复写入；常规顺序重放在计算前命中原记录，并返回原快照、`201 Created` 与 `Idempotency-Replayed: true`。并发首提竞争可能各自在唯一约束前完成确定性内存计算，但最终只能持久化一份快照，其余请求原子读取并返回该快照。
+- 同一 `(module_id, key)` 提交不同规范化请求时返回 `409 IDEMPOTENCY_KEY_REUSED`，不得覆盖或返回旧快照作为新请求结果。
+- 不提供该请求头时不启用去重；每次成功调用都主动创建新的 calculation ID，返回 `201 Created` 与 `Idempotency-Replayed: false`。
+
+幂等键只控制计算快照创建，不改变计算模型、工程结论、snapshot schema v4、report context schema v4 或报告缓存键。
+
 请求体：
 
 ```json
@@ -93,16 +103,31 @@ API 版本：`v1`
     "dead_wraps": 3,
     "backdrive_efficiency": null,
     "allow_forward_efficiency_as_reverse_approx": false,
-    "assumption_sources": {
-      "service_factor": "pending_confirmation",
-      "pitch_factor": "pending_confirmation",
-      "brake_safety_factor": "pending_confirmation"
-    }
+    "motor_duty_type": "S3",
+    "duty_cycle_percent": 40,
+    "starts_per_hour": 60,
+    "supply_voltage": 380,
+    "supply_frequency": 50
+  },
+  "assumption_sources": {
+    "service_factor": "pending_confirmation",
+    "pitch_factor": "pending_confirmation",
+    "brake_safety_factor": "pending_confirmation",
+    "pulley_efficiency": "user_input",
+    "dead_wrap_count": "project_default",
+    "minimum_dd_ratio": "project_default",
+    "motor_duty_type": "project_default",
+    "duty_cycle_percent": "project_default",
+    "starts_per_hour": "project_default",
+    "supply_voltage": "project_default",
+    "supply_frequency": "project_default"
   }
 }
 ```
 
 示例数值只用于说明 JSON 形状，不是项目推荐默认值。
+
+`assumption_sources` 的规范位置是请求顶层，与网页工作台一致。兼容期仍接受只在 `input` 内提交一次的旧请求；若顶层和 `input` 内同时出现，则返回 422，禁止静默覆盖冲突来源。
 
 响应 `201 Created`：
 
@@ -110,8 +135,8 @@ API 版本：`v1`
 {
   "calculation_id": "uuid",
   "module_id": "winch_drum",
-  "module_version": "1.2.0",
-  "calculation_model_version": "winch_drum.calc.1.2.0",
+  "module_version": "1.2.1",
+  "calculation_model_version": "winch_drum.calc.1.2.1",
   "release_status": "engineering_review",
   "status": "completed_with_warnings",
   "created_at": "2026-07-22T00:00:00Z",
@@ -189,6 +214,8 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 
 ## 3. 校验规则与错误
 
+`winch_drum` 对十一个项目默认值执行交叉校验：`service_factor=1.25`、`pitch_factor=1.10`、`brake_safety_factor=1.50`、`pulley_efficiency=0.95`、`dead_wrap_count=3`、`minimum_dd_ratio=20`、`motor_duty_type=S3`、`duty_cycle_percent=40`、`starts_per_hour=60`、`supply_voltage=380` 和 `supply_frequency=50`。完全省略 `assumption_sources` 时，模型按上述冻结项目默认记录来源；调用方修改任一值时必须同时显式提交该字段的非默认来源，不能继续标记为 `project_default`。`approved_core_ratio` 与 `backdrive_efficiency` 没有项目数值默认，来源不得标记为 `project_default`。服务只应用显式模型默认，不会根据自定义数值猜测来源。
+
 ### 3.1 HTTP 状态
 
 | 状态 | 场景 |
@@ -196,12 +223,12 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 | 400 | JSON 格式或请求语义无法解析。 |
 | 411 | 带请求体的方法缺少 `Content-Length`。 |
 | 404 | 模块、计算或报告不存在。 |
-| 409 | `LEGACY_RELEASE_STATUS_MISSING`：旧快照没有可验证缓存 PDF，且缺少生成新版 PDF 所需的计算时发布状态。 |
+| 409 | `IDEMPOTENCY_KEY_REUSED`：同一模块内的幂等键已绑定到不同规范化请求；或 `LEGACY_RELEASE_STATUS_MISSING`：旧快照没有可验证缓存 PDF，且缺少生成新版 PDF 所需的计算时发布状态。 |
 | 413 | 请求体超过限制。 |
 | 422 | 字段或跨字段校验失败。 |
 | 429 | 频率/PDF 并发限制。 |
 | 500 | 未预期内部错误；不泄漏堆栈。 |
-| 503 | 数据库/磁盘/PDF 渲染器暂不可用。 |
+| 503 | 数据库/磁盘/PDF 渲染器暂不可用，或持久化容量达到停止阈值。数据库不可用返回 `DATABASE_UNAVAILABLE` 与 `Retry-After: 5`；新快照容量门禁返回 `PERSISTENT_CAPACITY_LIMIT` 与 `Retry-After: 60`；失败请求不保存快照。 |
 
 错误体：
 
@@ -230,6 +257,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 - 缺芯径且无批准 D/d：采用显式项目初选比 20；相关几何结果为 `preliminary` 并产生 D/d/标准条款警告。
 - 缺反向效率且未显式允许近似：高速轴制动力矩为 `review_required`，低速轴静态参考仍返回。
 - 八个扩展模块要求填写总依据状态和依据引用；凡工程系数、额定能力或制造商候选数据参与判断，必须同时提交对应来源状态与引用。缺少可计算输入返回 422；未提供可选候选额定值时保持基础计算并把相应选型结论列为待校核，不伪造通过值。
+- 可选候选/许用数值虽已提交，但对应来源仍为 `pending_confirmation` 时，API 保留原始数值、引用和来源供审计，但依赖它的利用率、余量和通过/失败结论必须返回 `value=null` + `classification=review_required` + 具体原因，且快照不记录未执行的候选比较步骤。HTML/PDF 从同一快照展示“待校核/待校核值”，不展示为通过或可直接采用的结论。
 
 ## 4. 结果、公式步骤与报告上下文
 
@@ -250,7 +278,7 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 
 计算页的绳索类型、绳索结构、绳索材料、载荷谱和环境类型采用中文默认文本，并通过 HTML `datalist` 提供中文备选库。备选库不是工程枚举或合格性判定；用户仍可输入项目实际文本，后端继续按 Pydantic 非空、去首尾空白和长度上限校验，报告按保存值原样展示这些自由文本。
 
-请求体上限为 1 MiB；`POST/PUT/PATCH` 必须提供可解析的 `Content-Length`。单份 PDF 上限 20 MiB，项目持久化容量默认 5 GiB，达到 85% 后停止新 PDF、仍保留计算和已有报告读取。
+请求体上限为 1 MiB；`POST/PUT/PATCH` 必须提供可解析的 `Content-Length`。单份 PDF 上限 20 MiB。项目持久化容量默认 5 GiB，统一统计 SQLite 主库、WAL/SHM 和报告文件：当前用量加单份 PDF 最大预留达到 85%，或相关文件系统低于 512 MiB 最小余量时停止新 PDF；达到 95% 或低于最小余量时停止新增计算快照、readiness 返回 503，但已有快照和报告读取继续可用。PDF 检查强制刷新用量；高频计算/readiness 的目录统计最多缓存 5 秒。运维阈值仍可设置得比应用硬门禁更保守。
 
 ## 5. 兼容与版本策略
 
@@ -259,6 +287,7 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `calculation_model_version` 标识数值模型、输入语义、默认值和警告规则。
 - `snapshot_schema_version=4` 与报告上下文 `schema_version=4` 表示已冻结计算时发布状态；版本升级不触发旧快照重算。
 - 当前报告模板版本为 `winch_drum.report.1.2.1`，八个扩展模块分别为对应的 `*.report.1.0.1`；模板版本参与 PDF artifact 缓存键。
+- Platform 0.5.3 的幂等创建是向后兼容的可选 HTTP 能力；迁移 `006` 只增加幂等持久化元数据和唯一约束，计算/报告模型版本及两个 schema v4 均保持不变。
 - 增加可选字段可保持 API v1；改变字段语义、公式或默认值必须更新计算模型版本，并保留读取旧快照能力。
 - 八个扩展模块均使用相同通用端点；每个模块的专属输入/结果由其注册 Pydantic schema 决定。需求、公式和证据见 [`MODULE_REQUIREMENTS.md`](MODULE_REQUIREMENTS.md)、[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md) 和 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。
 
@@ -271,4 +300,5 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - HTML/PDF 与 GET calculation 的关键值源自同一快照。
 - `/docs` 和 `/redoc` 在严格 CSP 下可读且没有内联/外部脚本；安全头与三类缓存策略逐路由验证。
 - 新快照保存计算时发布状态；`legacy_unknown` 的有效缓存 PDF 可读，无有效缓存时稳定返回 `409` 且不启动渲染器。
+- 验证首次幂等创建返回 `Idempotency-Replayed: false`，同键同规范请求重放同一快照并返回 `true`，同键异请求返回 `409 IDEMPOTENCY_KEY_REUSED`，不同模块可独立使用同一键，无键请求继续产生不同 calculation ID。
 - 模块发现精确返回 9 个注册 ID 及上述发布状态；每个模块的页面、schema、POST、GET、HTML 和 PDF 路径均有本地回归。

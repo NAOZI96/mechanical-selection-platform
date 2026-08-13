@@ -2,8 +2,8 @@
 
 MODULE_ID = "stepper_motor"
 MODULE_NAME = "步进电机选型"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "stepper_motor.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "stepper_motor.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "stepper_motor.report.1.0.1"
 
 DISCLAIMER = (

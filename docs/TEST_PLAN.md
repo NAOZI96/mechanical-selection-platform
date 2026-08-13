@@ -6,7 +6,7 @@
 
 发布门禁不依赖人员姓名或日期。HTML/PDF 同源、中文文本、长表分页、并发限流、失败隔离和视觉 QA 已纳入自动化/人工门禁；九模块版本的目标容器资源、备份恢复和专项机械审核未通过前，总状态仍不得为 `released`。
 
-文档版本：0.5.0
+文档版本：0.5.3
 目标：证明九模块数值可追溯、边界受控、报告一致、发布状态不误导，产品入口/API 文档/安全与旧数据兼容受控，并在低资源服务器上不干扰既有服务
 
 ## 1. 测试原则与门禁
@@ -16,6 +16,9 @@
 - 比较使用明确绝对/相对容差；整数圈数、层数、状态和警告代码必须精确相等。
 - 中间步骤与最终结果都测试，避免“最终数值碰巧正确”。
 - 所有金样均记录 `calculation_model_version`；模型变更不得静默覆盖旧期望。
+- 对于来源受控的项目默认值，必须测试“值改变但仍标记 `project_default`”的 422 拒绝路径，避免快照伪造来源。
+- 前端计算后修改任一输入必须立即隐藏旧快照和报告链接；请求期间锁定表单，且响应只能与提交时输入配对。
+- 可选 `Idempotency-Key` 必须验证模块作用域、同规范请求重放、异请求冲突、无键主动新建以及并发竞争下最多一份持久化快照；幂等不得改变工程结果或报告版本。
 - P0/P1 缺陷清零，核心金样、单位、边界、快照/报告一致性测试全绿后方可发布。
 
 ## 2. 测试层级
@@ -108,10 +111,13 @@
 - PDF 检查中文字体嵌入/显示、长警告换页、逐层表头重复、页码、免责声明和无截断。
 - 新计算必须在 `calculations.release_status`、snapshot schema v4 和 report context schema v4 中保存同一计算时发布状态；改变当前注册表状态后读取旧记录不得漂移。
 - 迁移 `005` 对旧行保留 `NULL`，repository 映射为 `legacy_unknown`；不得推断或回填历史状态。
+- 迁移 `006` 对旧行保留空幂等字段，使用 `CHECK` 约束 1～128 位 `[A-Za-z0-9._~-]` 键、64 位小写十六进制指纹及二者成对空值，并建立 `(module_id, idempotency_key)` 非空部分唯一索引；验证非法直接写入被拒绝、不同模块可使用相同键、无键重复请求仍生成不同 calculation ID。
+- 首次带键创建返回 `201`/`Idempotency-Replayed: false`；同键同规范请求返回同一 calculation ID 与 `true`；同键异请求返回 `409 IDEMPOTENCY_KEY_REUSED` 且原快照不变；无键成功请求也返回 `false`，但每次生成不同 calculation ID。
 - 遗留 ready artifact 只有在模板版本、受控相对路径、文件大小和 SHA-256 全部匹配时才可下载，并验证 legacy 响应头、HTTP Warning 与文件名前缀。
 - `legacy_unknown` 快照没有有效缓存 PDF 时固定返回 `409 LEGACY_RELEASE_STATUS_MISSING`，且测试桩证明未启动渲染器；损坏缓存先标记 failed 后遵循同一 409 路径。
 - `/docs` 与 `/redoc` 在严格 CSP 下返回服务端端点清单，不含内联/外部脚本；逐路由验证统一安全头、静态资源一天缓存、计算/报告 `no-store`/`noindex` 及其他响应 `no-cache`。
-- 缺固定字体或报告临时目录不可写时启动失败；`/health/ready` 只验证注册表、完整迁移清单、`SELECT 1` 与报告运行目录/字体存在，并明确不调用 `PRAGMA quick_check` 或 PDF 渲染。
+- 缺固定字体或报告临时目录不可写时启动失败；启动把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对，同名空触发器、大小写不同的字符串字面量、额外触发器及额外/伪装 UNIQUE 索引都必须失败。`/health/ready` 验证注册表、实际 schema、回滚式 SQLite 写探针、报告临时文件写删及新快照容量/磁盘余量；明确不调用 `PRAGMA quick_check`、工程计算或 PDF 渲染。
+- 正常计算 INFO 日志必须包含 `request_id/module_id/model_version/duration_ms/status/warning_count/idempotency_replayed`，不包含完整输入或幂等键原文；首次创建与重放均需覆盖。
 
 ## 8. 模块扩展测试
 
@@ -166,6 +172,8 @@
 
 ### Phase 8 当前验证状态
 
-- 2026-07-25 当前工作树 126 项本地回归全部通过，新增覆盖 CSP-safe `/docs`、遗留快照无有效 PDF 缓存时的受控 409，以及按 Accept 返回品牌 HTML 或 JSON 的受控 500；完整套件结果为 `Ran 126 tests ... OK`。
+- 当前工作树 154 项本地回归全部通过，覆盖 CSP-safe `/docs`、遗留快照无有效 PDF 缓存时的受控 409、受控 500/数据库与容量 503、迁移原子性、完整 schema 签名漂移/readiness、共享持久化预算、来源/默认值交叉校验、八模块候选来源待确认门禁、幂等顺序/并发/冲突/容量重放/数据库约束和前端快照状态契约；完整套件结果为 `Ran 154 tests ... OK`。CI 对三份静态脚本和浏览器验证脚本逐一执行 `node --check`，并运行隔离真实 Chrome 状态回归。
+- `scripts/verify_calculation_state.mjs` 自动启动临时数据库、报告目录和随机回环端口，通过 Chrome DevTools Protocol 执行无第三方 Node 包的真实浏览器回归：验证金样完整重置、两种工作台的快照失效/请求竞态/错误成功响应、非 JSON/空 JSON/503/真实超时的受控失败，以及“首个真实请求已落库但响应丢失”后的幂等安全重试；同一逻辑提交必须复用幂等键、每次 HTTP 尝试使用不同请求 ID、重放返回同一 calculation ID。另验证旧模型 session 只恢复输入并置 dirty，并在 390/430 px 断言安全边界和工程状态可见。默认不得向常用数据库写入测试快照。
+- GitHub Actions 使用只读 `contents` 权限和 Node 24 action 运行时的 `checkout/setup-python/setup-node@v6`；Node 22 执行上述隔离浏览器脚本，随后解析 Compose 并构建候选镜像。新工作流必须以推送后的实际 GitHub check 为通过证据，不能用本机缺少 Docker 的环境虚报容器门禁已通过。
 - 现有回归同时覆盖 snapshot/report context schema v4、计算时发布状态持久化、报告模板 patch 版本、基础安全头与严格 CSP。
-- 当前候选版新增可空迁移 `005_calculation_release_status.sql`，没有新增常驻服务，也没有执行远程部署。静态/计算/其他路径的完整缓存头矩阵、启动目录写探针、有效遗留缓存下载和浅层 ready 语义仍须作为发布前定向回归及目标机冒烟执行。该本地通过不等于迁移 `005` 已应用到目标库，也不等于当前镜像完成目标机资源、备份恢复、遗留缓存和公网复验。
+- 当前 Platform 0.5.3 候选版在 `005_calculation_release_status.sql` 后新增 `006_calculation_idempotency.sql`，没有新增常驻服务，也没有执行远程部署。静态/计算/其他路径的完整缓存头矩阵、有效遗留缓存下载、幂等语义和强化 ready/容量语义仍须作为目标机冒烟执行。该本地通过不等于迁移 `005`/`006` 已应用到目标库，也不等于当前镜像完成目标机资源、备份恢复、遗留缓存和公网复验。

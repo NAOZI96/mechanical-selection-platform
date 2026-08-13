@@ -1,17 +1,17 @@
 # 八个扩展工程模块计算规格
 
-文档版本：0.1.0
+文档版本：0.1.1
 工程发布状态：`internal_testing`
 适用计算模型：
 
-- `transmission_check.calc.1.0.0`
-- `gear_drive.calc.1.0.0`
-- `shaft_bearing.calc.1.0.0`
-- `lead_screw.calc.1.0.0`
-- `synchronous_belt.calc.1.0.0`
-- `motor_drive.calc.1.0.0`
-- `stepper_motor.calc.1.0.0`
-- `pneumatic_cylinder.calc.1.0.0`
+- `transmission_check.calc.1.0.1`
+- `gear_drive.calc.1.0.1`
+- `shaft_bearing.calc.1.0.1`
+- `lead_screw.calc.1.0.1`
+- `synchronous_belt.calc.1.0.1`
+- `motor_drive.calc.1.0.1`
+- `stepper_motor.calc.1.0.1`
+- `pneumatic_cylinder.calc.1.0.1`
 
 自动化证据见 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。绞车与卷筒模块仍以 [`CALCULATION_SPEC.md`](CALCULATION_SPEC.md) 为唯一计算规格。
 
@@ -26,8 +26,8 @@
 - 每次计算必须提供 `basis_source_status` 和非空 `basis_reference`。来源状态只能是 `user_input`、`project_setting`、`standard_confirmed`、`manufacturer_data` 或 `pending_confirmation`。
 - `calculated` 表示按已声明模型直接计算；`preliminary` 表示仅可初选；`review_required` 表示信息不足且 `value=null`；`informational` 仅作提示。
 - 候选额定值、许用值、材料值、效率、使用系数、寿命指数、有效长度系数和曲线点均由调用方显式提供。软件不内置或猜测任何厂商数值、标准系数、材料许用值或产品型号。
-- 候选数据缺失时，基础理论量仍计算；依赖该候选数据的结果必须为 `value=null`、`classification=review_required` 并带非空原因。缺失候选时对应比较公式没有 `FormulaStep`，但 `ScalarResult.formula_ids` 仍声明预留公式 ID。
-- 候选数据存在时，比较结果最多为 `preliminary`。即使比较为 `true`，也不等于标准合格、采购放行、制造放行或安全认证。
+- 候选数据缺失，或数值存在但其来源状态仍为 `pending_confirmation` 时，基础理论量仍计算；依赖该候选数据的利用率、余量和通过/失败结论必须为 `value=null`、`classification=review_required` 并带非空原因。此时对应比较公式没有 `FormulaStep`，但 `ScalarResult.formula_ids` 仍声明预留公式 ID；原始候选值和来源状态仍保存到快照供审计。
+- 候选数据存在且来源状态非 `pending_confirmation` 时，比较结果最多为 `preliminary`。即使比较为 `true`，也不等于标准合格、采购放行、制造放行或安全认证。
 - 公式 ID 当前只在模块内部唯一。审计主键应使用 `(module_id, calculation_model_version, formula_id)`，不得只用裸 `formula_id`。
 - 计算使用未舍入浮点值；显示层舍入不得回写计算输入或中间结果。
 
@@ -84,13 +84,13 @@
 | `KIN-014` | `omega_out,4=omega_in,4/i_4` | rad/s | calculated | 有第 4 级时 |
 | `TORQUE-014` | `T_out,4=T_in,4*i_4*eta_4` | N·m | calculated | 有第 4 级时 |
 | `POWER-014` | `P_out,4=T_out,4*omega_out,4` | W | calculated | 有第 4 级时 |
-| `CHECK-001` | `u_T=T_out/T_candidate,rated` | — | preliminary | 有候选额定转矩时 |
-| `CHECK-002` | `candidate_torque_satisfied=(T_out<=T_candidate,rated)` | — | preliminary | 有候选额定转矩时 |
-| `CHECK-003` | `Delta_T=T_candidate,rated-T_out` | N·m | preliminary | 有候选额定转矩时 |
+| `CHECK-001` | `u_T=T_out/T_candidate,rated` | — | preliminary | 有候选额定转矩且来源非待确认时 |
+| `CHECK-002` | `candidate_torque_satisfied=(T_out<=T_candidate,rated)` | — | preliminary | 有候选额定转矩且来源非待确认时 |
+| `CHECK-003` | `Delta_T=T_candidate,rated-T_out` | N·m | preliminary | 有候选额定转矩且来源非待确认时 |
 
 ### 3.4 候选缺失与未覆盖项
 
-未提供候选额定转矩时，`candidate_torque_utilization`、`candidate_torque_margin_nm`、`candidate_torque_satisfied` 均为 `null/review_required`，并产生 `CANDIDATE_TORQUE_MISSING`。
+未提供候选额定转矩时，`candidate_torque_utilization`、`candidate_torque_margin_nm`、`candidate_torque_satisfied` 均为 `null/review_required`，并产生 `CANDIDATE_TORQUE_MISSING`。数值已提供但来源待确认时，三项结果仍为 `null/review_required`，并产生 `CANDIDATE_DATA_PENDING`。
 
 明确未覆盖：动态/峰值转矩、载荷谱与疲劳、齿轮/带/链强度、轴/联轴器/键强度、轴承寿命、热容量与润滑、反驱与制动、扭振、标准条款确认、制造商应用批准。
 
@@ -132,14 +132,14 @@
 | `KIN-003` | `omega_2=omega_1/i` | rad/s | calculated | 输出角速度 |
 | `TORQUE-001` | `T_2=T_1*i*eta_mesh` | N·m | calculated | 输出转矩 |
 | `POWER-001` | `P_2=T_2*omega_2` | W | calculated | 输出功率 |
-| `CHECK-001` | `u_F=F_t/F_t,allow` | — | preliminary | 有许用切向力 |
-| `CHECK-002` | `force_satisfied=(F_t<=F_t,allow)` | — | preliminary | 有许用切向力 |
-| `CHECK-003` | `u_v=v/v_max` | — | preliminary | 有最大节线速度 |
-| `CHECK-004` | `speed_satisfied=(v<=v_max)` | — | preliminary | 有最大节线速度 |
+| `CHECK-001` | `u_F=F_t/F_t,allow` | — | preliminary | 有许用切向力且来源非待确认时 |
+| `CHECK-002` | `force_satisfied=(F_t<=F_t,allow)` | — | preliminary | 有许用切向力且来源非待确认时 |
+| `CHECK-003` | `u_v=v/v_max` | — | preliminary | 有最大节线速度且来源非待确认时 |
+| `CHECK-004` | `speed_satisfied=(v<=v_max)` | — | preliminary | 有最大节线速度且来源非待确认时 |
 
 ### 4.4 候选缺失与未覆盖项
 
-缺少某一候选限值时，只将该限值对应的利用率和通过标志置为 `null/review_required`；另一组候选数据仍可独立比较。
+缺少某一候选限值，或该限值来源待确认时，只将该限值对应的利用率和通过标志置为 `null/review_required`；另一组且来源非待确认的候选数据仍可独立比较。
 
 明确未覆盖：齿根弯曲强度、齿面接触强度、胶合/点蚀/磨损、材料与热处理、齿宽与载荷分布、动载与精度等级、变位/侧隙/修形、润滑与热平衡、轴承/轴/箱体、标准条款和制造商应用批准。
 
@@ -175,13 +175,13 @@
 | `STRESS-001` | `sigma_b=32*M/(pi*d^3)` | Pa | calculated | 实心圆轴名义弯曲应力 |
 | `STRESS-002` | `tau_t=16*T/(pi*d^3)` | Pa | calculated | 实心圆轴名义扭转剪应力 |
 | `STRESS-003` | `sigma_vm=sqrt(sigma_b^2+3*tau_t^2)` | Pa | calculated | 名义 von Mises 应力 |
-| `CHECK-001` | `u_sigma=sigma_vm/sigma_allow` | — | preliminary | 有许用应力 |
-| `CHECK-002` | `stress_satisfied=(sigma_vm<=sigma_allow)` | — | preliminary | 有许用应力 |
-| `CHECK-003` | `Delta_sigma=sigma_allow-sigma_vm` | Pa | preliminary | 有许用应力 |
+| `CHECK-001` | `u_sigma=sigma_vm/sigma_allow` | — | preliminary | 有许用应力且来源非待确认时 |
+| `CHECK-002` | `stress_satisfied=(sigma_vm<=sigma_allow)` | — | preliminary | 有许用应力且来源非待确认时 |
+| `CHECK-003` | `Delta_sigma=sigma_allow-sigma_vm` | Pa | preliminary | 有许用应力且来源非待确认时 |
 
 ### 5.4 候选缺失与未覆盖项
 
-缺少许用应力时，利用率、余量和通过标志均为 `null/review_required`，基础寿命和名义应力仍计算。
+缺少许用应力或其来源待确认时，利用率、余量和通过标志均为 `null/review_required`，基础寿命和名义应力仍计算。
 
 明确未覆盖：轴承静安全、可靠度修正、润滑/污染/温度、游隙/配合/不对中、变载谱；轴疲劳与应力集中、键槽/台阶/圆角/配合、挠度/对中、临界转速/振动、材料表面和尺寸效应、标准条款和制造商应用批准。
 
@@ -227,13 +227,13 @@
 | `BUCKLING-002` | `F_cr=pi^2*E*I_root/(K*L)^2` | N | preliminary | 理想 Euler 模型 |
 | `CHECK-002` | `u_buckling=F/F_cr` | — | preliminary | 始终 |
 | `CHECK-003` | `euler_buckling_satisfied=(F<=F_cr)` | — | preliminary | 始终 |
-| `CHECK-004` | `u_candidate=F/F_candidate,allow` | — | preliminary | 有候选许用载荷 |
-| `CHECK-005` | `candidate_satisfied=(F<=F_candidate,allow)` | — | preliminary | 有候选许用载荷 |
-| `CHECK-006` | `Delta_F=F_candidate,allow-F` | N | preliminary | 有候选许用载荷 |
+| `CHECK-004` | `u_candidate=F/F_candidate,allow` | — | preliminary | 有候选许用载荷且来源非待确认时 |
+| `CHECK-005` | `candidate_satisfied=(F<=F_candidate,allow)` | — | preliminary | 有候选许用载荷且来源非待确认时 |
+| `CHECK-006` | `Delta_F=F_candidate,allow-F` | N | preliminary | 有候选许用载荷且来源非待确认时 |
 
 ### 6.4 候选缺失与未覆盖项
 
-缺少候选许用轴向载荷时，候选利用率、余量和通过标志均为 `null/review_required`。Euler 校核与候选产品校核相互独立。
+缺少候选许用轴向载荷或其来源待确认时，候选利用率、余量和通过标志均为 `null/review_required`。Euler 校核与候选产品校核相互独立。
 
 明确未覆盖：真实牙型修正、止推轴承/端面摩擦、螺纹与螺母强度、接触压强与磨损、PV/润滑/热、疲劳与工作制、临界转速与旋振、Euler 细长比与初始缺陷、屈曲安全系数/标准条款、安装不对中/横向载荷、制造商应用批准。
 
@@ -275,7 +275,7 @@
 
 ### 7.3 候选缺失与未覆盖项
 
-两个候选限值分别缺失时，各自通过标志为 `null/review_required`；基础几何与圆周力继续计算。
+两个候选限值分别缺失，或共用的候选来源待确认时，各自通过标志为 `null/review_required`；基础几何与圆周力继续计算。
 
 明确未覆盖：带型兼容、目录标准节线长度、带宽与齿承载、预张力与轴承载荷、疲劳寿命、环境降额。
 
@@ -319,7 +319,7 @@
 
 ### 8.3 候选缺失与未覆盖项
 
-四项候选数据独立比较。缺少任一项时只将对应通过标志置为 `null/review_required`，其余已有候选仍可比较。
+候选来源非待确认时，四项候选数据独立比较。缺少任一项时只将对应通过标志置为 `null/review_required`；共用来源待确认时四项结果全部保持 `null/review_required`。
 
 明确未覆盖：加速/减速、折算惯量、完整工作制与热模型、制造商完整转矩-转速曲线、再生与制动、供电与驱动器兼容性。
 
@@ -365,7 +365,7 @@
 
 ### 9.3 候选缺失与未覆盖项
 
-曲线点缺失时 `candidate_curve_torque_pass=null/review_required`；允许惯量比缺失时 `candidate_inertia_ratio_pass=null/review_required`。两项彼此独立。
+曲线点缺失时 `candidate_curve_torque_pass=null/review_required`；允许惯量比缺失时 `candidate_inertia_ratio_pass=null/review_required`。来源非待确认时两项彼此独立；共用来源待确认时两项都保持 `null/review_required`。
 
 明确未覆盖：负载惯性加速过程的传动损耗口径、完整转矩-转速曲线、共振与失步、驱动器电气条件、电机热容量、定位精度、传动柔性、保持与制动。当前 `transmission_efficiency` 仅用于稳态负载转矩折算；该口径未经项目机械审核前，不得把峰值转矩结果提升为工程放行值。
 
@@ -413,7 +413,7 @@
 
 ### 10.3 候选缺失与未覆盖项
 
-缺少候选最大供气绝压时，`candidate_pressure_rating_pass=null/review_required`；理论力、需求力、余量和参考耗气量仍计算。
+缺少候选最大供气绝压或其来源待确认时，`candidate_pressure_rating_pass=null/review_required`；理论力、需求力、余量和参考耗气量仍计算。
 
 明确未覆盖：管路/阀压降、动态背压、流量/速度/循环时间、死腔/泄漏/温度、缓冲与冲击、活塞杆屈曲与安装、材料/环境/适用标准。
 

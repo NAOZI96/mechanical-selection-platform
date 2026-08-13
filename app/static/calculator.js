@@ -7,9 +7,16 @@ const emptyState = document.querySelector("#empty-state");
 const loadingState = document.querySelector("#loading-state");
 const resultContent = document.querySelector("#result-content");
 const resultPanel = document.querySelector("#results");
+const reportLink = document.querySelector("#report-link");
+const emptyStateTitle = emptyState.querySelector("h2");
+const emptyStateMessage = emptyState.querySelector("h2 + p");
 const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
+const CURRENT_CALCULATION_MODEL_VERSION = document.body.dataset.calculationModelVersion || "";
+const CALCULATION_ENDPOINT = "/api/v1/modules/winch_drum/calculations";
+const CALCULATION_TIMEOUT_MS = 20000;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let resultState = "idle";
+let pendingSubmission = null;
 
 const numericFields = [
   "rated_line_pull_kn", "rope_diameter_mm", "rope_speed_m_per_min",
@@ -50,13 +57,43 @@ const goldenSample = {
   speed_input_location: "drum_rope_end",
   force_input_type: "rated",
   pulley_efficiency: 1,
+  approved_core_ratio: "",
+  minimum_dd_ratio: 20,
+  actual_groove_pitch_mm: "",
+  actual_usable_groove_count: "",
+  termination_allowance_m: 0,
+  brake_basis_type: "design_force",
+  brake_installation_shaft: "drum_or_low_speed",
+  backdrive_efficiency: "",
+  transmission_backdrive_type: "reversible",
+  motor_duty_type: "S3",
+  duty_cycle_percent: 40,
+  starts_per_hour: 60,
+  supply_voltage: 380,
+  supply_frequency: 50,
+  motor_power_series_id: "project_default_iec_kw",
+  source_service_factor: "pending_confirmation",
+  source_pitch_factor: "pending_confirmation",
+  source_brake_safety_factor: "project_default",
+  source_approved_core_ratio: "pending_confirmation",
+  source_minimum_dd_ratio: "project_default",
+  source_pulley_efficiency: "user_input",
+  source_dead_wrap_count: "project_default",
+  source_backdrive_efficiency: "pending_confirmation",
+  source_motor_duty_type: "project_default",
+  source_duty_cycle_percent: "project_default",
+  source_starts_per_hour: "project_default",
+  source_supply_voltage: "project_default",
+  source_supply_frequency: "project_default",
 };
 
 function loadGoldenSample() {
+  clearPendingSubmission();
+  invalidateCurrentSnapshot();
+  form.reset();
   Object.entries(goldenSample).forEach(([name, value]) => {
     form.elements[name].value = String(value);
   });
-  form.elements.backdrive_efficiency.value = "";
   form.elements.allow_forward_efficiency_as_reverse_approx.checked = false;
   formErrors.hidden = true;
   saveSessionState();
@@ -66,6 +103,7 @@ function clearCalculatorSession() {
   const confirmed = window.confirm("确认清空当前标签页中的计算参数和最近结果吗？已保存的历史报告不会删除。");
   if (!confirmed) return;
 
+  clearPendingSubmission();
   form.reset();
   clearFieldErrors();
   formErrors.replaceChildren();
@@ -75,7 +113,7 @@ function clearCalculatorSession() {
   } catch (error) {
     console.warn("无法清除本次访问的计算参数。", error);
   }
-  document.querySelector("#report-link").href = "#";
+  reportLink.removeAttribute("href");
   setResultState("idle");
   form.querySelector("input, select")?.focus({preventScroll: true});
 }
@@ -86,8 +124,8 @@ document.querySelector("#back-to-input").addEventListener("click", () => {
   form.scrollIntoView({behavior: scrollBehavior(), block: "start"});
   form.querySelector("input, select")?.focus({preventScroll: true});
 });
-form.addEventListener("input", () => saveSessionState());
-form.addEventListener("change", () => saveSessionState());
+form.addEventListener("input", handleFormMutation);
+form.addEventListener("change", handleFormMutation);
 if (new URLSearchParams(window.location.search).get("sample") === "golden") {
   loadGoldenSample();
 } else {
@@ -104,27 +142,29 @@ form.addEventListener("submit", async (event) => {
   }
 
   const previousResultState = resultState;
+  const submittedForm = serializeForm();
+  const payload = buildPayload();
+  const logicalSubmission = reuseOrCreateSubmission(payload, submittedForm);
   setLoading(true);
   setResultState("loading");
   try {
-    const response = await fetch("/api/v1/modules/winch_drum/calculations", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(buildPayload()),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const error = data.error || {message: "计算请求失败", details: []};
-      showError(error.message, error.details || []);
-      setResultState(previousResultState);
+    const data = await fetchCalculation(payload, logicalSubmission.idempotencyKey);
+    if (!sameJson(serializeForm(), submittedForm) || !winchResponseMatchesRequest(data, payload)) {
+      discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
       return;
     }
     formErrors.hidden = true;
-    saveSessionState(data);
+    saveSessionState(data, submittedForm, submittedForm);
     renderSnapshot(data);
+    clearPendingSubmission();
   } catch (error) {
-    showError("无法连接计算服务，请确认本地应用仍在运行。", []);
-    setResultState(previousResultState);
+    if (!error?.retryable) clearPendingSubmission();
+    showError(
+      error instanceof Error ? error.message : "无法连接计算服务，请确认应用仍在运行。",
+      error?.details || [],
+      {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+    );
+    restoreStateAfterFailedRequest(previousResultState, submittedForm);
   } finally {
     setLoading(false);
   }
@@ -169,6 +209,11 @@ function buildPayload() {
       pulley_efficiency: form.elements.source_pulley_efficiency.value,
       dead_wrap_count: form.elements.source_dead_wrap_count.value,
       backdrive_efficiency: form.elements.source_backdrive_efficiency.value,
+      motor_duty_type: form.elements.source_motor_duty_type.value,
+      duty_cycle_percent: form.elements.source_duty_cycle_percent.value,
+      starts_per_hour: form.elements.source_starts_per_hour.value,
+      supply_voltage: form.elements.source_supply_voltage.value,
+      supply_frequency: form.elements.source_supply_frequency.value,
     },
   };
 }
@@ -182,13 +227,89 @@ function serializeForm() {
   return values;
 }
 
-function saveSessionState(snapshot) {
+function handleFormMutation() {
+  clearPendingSubmission();
+  clearRetryAction();
+  invalidateCurrentSnapshot();
+  saveSessionState();
+}
+
+function clearRetryAction() {
+  formErrors.querySelector(".error-retry")?.closest(".error-actions")?.remove();
+  const context = formErrors.querySelector(".error-context");
+  if (context?.textContent.includes("本次逻辑提交保留了幂等键")) context.remove();
+}
+
+function discardMismatchedResponse(message) {
+  clearPendingSubmission();
+  invalidateCurrentSnapshot();
+  saveSessionState();
+  setResultState("dirty");
+  showError(message, []);
+}
+
+function restoreStateAfterFailedRequest(previousState, submittedForm) {
+  if (!sameJson(serializeForm(), submittedForm)) {
+    invalidateCurrentSnapshot();
+    saveSessionState();
+    setResultState("dirty");
+    return;
+  }
+  if (previousState === "result") {
+    setResultState("result");
+    return;
+  }
+  saveSessionState(null, submittedForm, null);
+  setResultState("dirty");
+}
+
+function winchResponseMatchesRequest(snapshot, payload) {
+  const responseInput = snapshot?.input_original;
+  if (!responseInput || typeof responseInput !== "object") return false;
+  const requestInput = {
+    ...payload.input,
+    dead_wrap_count: payload.input.dead_wraps,
+    assumption_sources: payload.assumption_sources,
+  };
+  delete requestInput.dead_wraps;
+  optionalFields.forEach((field) => {
+    const canonicalField = field === "dead_wraps" ? "dead_wrap_count" : field;
+    if (!Object.hasOwn(requestInput, canonicalField)) requestInput[canonicalField] = null;
+  });
+  return sameCanonicalJson(responseInput, requestInput);
+}
+
+function sameCanonicalJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function invalidateCurrentSnapshot() {
+  const persistedState = readSessionState();
+  const hadSnapshot = resultState === "result" || resultState === "dirty" || Boolean(persistedState?.snapshot);
+  reportLink.removeAttribute("href");
+  if (hadSnapshot) setResultState("dirty");
+}
+
+function saveSessionState(snapshot = null, formValues = serializeForm(), snapshotForm = null) {
   try {
-    const previous = readSessionState();
     const state = {
-      version: 1,
-      form: serializeForm(),
-      snapshot: snapshot === undefined ? previous?.snapshot || null : snapshot,
+      version: 3,
+      calculationModelVersion: CURRENT_CALCULATION_MODEL_VERSION,
+      form: formValues,
+      snapshot,
+      snapshotForm,
     };
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
@@ -201,7 +322,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 1 && state.form && typeof state.form === "object" ? state : null;
+    return [2, 3].includes(state?.version) && state.form && typeof state.form === "object" ? state : null;
   } catch (error) {
     console.warn("无法读取本次访问的计算参数。", error);
     return null;
@@ -220,14 +341,30 @@ function restoreSessionState() {
       field.value = value;
     }
   });
-  if (state.snapshot?.module_id === "winch_drum" && state.snapshot?.results && state.snapshot?.links) {
+  const versionMatches = state.version === 3
+    && state.calculationModelVersion === CURRENT_CALCULATION_MODEL_VERSION
+    && state.snapshot?.calculation_model_version === CURRENT_CALCULATION_MODEL_VERSION;
+  if (
+    versionMatches
+    &&
+    state.snapshot?.module_id === "winch_drum"
+    && state.snapshot?.results
+    && state.snapshot?.links
+    && sameJson(state.form, state.snapshotForm)
+  ) {
     renderSnapshot(state.snapshot, {focus: false});
+  } else {
+    reportLink.removeAttribute("href");
+    if (state.snapshot || state.version !== 3 || state.calculationModelVersion !== CURRENT_CALCULATION_MODEL_VERSION) {
+      saveSessionState(null, state.form, null);
+    }
+    setResultState("dirty");
   }
 }
 
 function renderSnapshot(snapshot, {focus = true} = {}) {
   setResultState("result");
-  document.querySelector("#report-link").href = snapshot.links.html_report;
+  reportLink.href = snapshot.links.html_report;
 
   const meta = document.querySelector("#result-meta");
   meta.replaceChildren(
@@ -254,9 +391,13 @@ function setResultState(state) {
   resultState = state;
   resultPanel.dataset.state = state;
   resultPanel.setAttribute("aria-busy", String(state === "loading"));
-  emptyState.hidden = state !== "idle";
+  emptyState.hidden = state !== "idle" && state !== "dirty";
   loadingState.hidden = state !== "loading";
   resultContent.hidden = state !== "result";
+  emptyStateTitle.textContent = state === "dirty" ? "参数已修改" : "等待计算";
+  emptyStateMessage.textContent = state === "dirty"
+    ? "旧快照与报告链接已隐藏；请按当前参数重新计算。"
+    : "填写左侧参数后，结果、警告和逐层容绳明细将在这里显示。";
 }
 
 function renderDesignConclusion(snapshot) {
@@ -433,7 +574,7 @@ function resultCard(label, result) {
   return card;
 }
 
-function showError(message, details) {
+function showError(message, details = [], {requestId = "", retryable = false} = {}) {
   formErrors.replaceChildren();
   const title = document.createElement("strong");
   title.textContent = message;
@@ -444,10 +585,42 @@ function showError(message, details) {
       const item = document.createElement("li");
       item.textContent = `${detail.field || "输入"}：${detail.message}`;
       list.append(item);
-      const field = form.elements[detail.field];
+      const fieldParts = String(detail.field || "").split(".").filter(Boolean);
+      const fieldName = fieldParts[0] === "input" ? fieldParts[1] : fieldParts[0];
+      const field = fieldName ? form.elements[fieldName] : null;
       if (field) field.setAttribute("aria-invalid", "true");
     });
     formErrors.append(list);
+  }
+  if (requestId || retryable) {
+    const context = document.createElement("p");
+    context.className = "error-context";
+    if (retryable) {
+      context.append("当前页面未收到可用的新快照。本次逻辑提交保留了幂等键，可安全重试；请保留请求 ID 以便核查。");
+    }
+    if (requestId) {
+      if (retryable) context.append(" ");
+      context.append("请求 ID：");
+      const code = document.createElement("code");
+      code.textContent = requestId;
+      context.append(code);
+    }
+    formErrors.append(context);
+  }
+  if (retryable) {
+    const actions = document.createElement("div");
+    actions.className = "error-actions";
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "button button--secondary error-retry";
+    retryButton.textContent = "安全重试本次计算";
+    retryButton.addEventListener("click", () => {
+      if (!pendingSubmission) return;
+      retryButton.disabled = true;
+      form.requestSubmit();
+    });
+    actions.append(retryButton);
+    formErrors.append(actions);
   }
   formErrors.hidden = false;
   formErrors.scrollIntoView({behavior: scrollBehavior(), block: "center"});
@@ -458,8 +631,141 @@ function clearFieldErrors() {
 }
 
 function setLoading(loading) {
-  calculateButton.disabled = loading;
+  Array.from(form.elements).forEach((control) => {
+    if (loading && !control.disabled) {
+      control.disabled = true;
+      control.dataset.requestLock = "true";
+    } else if (!loading && control.dataset.requestLock === "true") {
+      control.disabled = false;
+      delete control.dataset.requestLock;
+    }
+  });
   calculateButton.textContent = loading ? "正在计算并保存…" : "保存快照并计算";
+}
+
+async function fetchCalculation(payload, idempotencyKey, timeoutMs = CALCULATION_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const clientRequestId = createClientRequestId();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(CALCULATION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(clientRequestId ? {"X-Request-ID": clientRequestId} : {}),
+        ...(idempotencyKey ? {"Idempotency-Key": idempotencyKey} : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const headerRequestId = response.headers.get("x-request-id") || clientRequestId;
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw calculationRequestError("计算服务返回了非 JSON 响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    const responseText = await response.text();
+    if (!responseText.trim()) {
+      throw calculationRequestError("计算服务返回了空响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw calculationRequestError("计算服务返回了无效 JSON，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+
+    if (!response.ok) {
+      const apiError = data?.error || {};
+      throw calculationRequestError(apiError.message || `计算请求失败（HTTP ${response.status}）。`, {
+        details: Array.isArray(apiError.details)
+          ? apiError.details.filter((detail) => detail && typeof detail === "object")
+          : [],
+        requestId: apiError.request_id || headerRequestId,
+        retryable: isRetryableHttpStatus(response.status),
+        status: response.status,
+      });
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw calculationRequestError("计算请求超时，请检查网络或服务状态后重试。", {
+        requestId: clientRequestId,
+        retryable: true,
+      });
+    }
+    if (error?.isCalculationRequestError) throw error;
+    throw calculationRequestError("无法连接计算服务，请确认应用仍在运行。", {
+      requestId: clientRequestId,
+      retryable: true,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function calculationRequestError(message, {details = [], requestId = "", retryable = false, status = null} = {}) {
+  const error = new Error(message);
+  error.details = details;
+  error.requestId = requestId;
+  error.retryable = retryable;
+  error.status = status;
+  error.isCalculationRequestError = true;
+  return error;
+}
+
+function isRetryableHttpStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function createClientRequestId() {
+  return createOpaqueId("request");
+}
+
+function reuseOrCreateSubmission(payload, submittedForm) {
+  if (
+    pendingSubmission
+    && sameCanonicalJson(pendingSubmission.payload, payload)
+    && sameJson(pendingSubmission.form, submittedForm)
+  ) {
+    return pendingSubmission;
+  }
+  pendingSubmission = {
+    idempotencyKey: createOpaqueId("winch"),
+    payload: canonicalJson(payload),
+    form: submittedForm,
+  };
+  return pendingSubmission;
+}
+
+function clearPendingSubmission() {
+  pendingSubmission = null;
+}
+
+function createOpaqueId(prefix) {
+  if (typeof window.crypto?.randomUUID === "function") return `${prefix}-${window.crypto.randomUUID()}`;
+  if (typeof window.crypto?.getRandomValues === "function") {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return `${prefix}-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  throw new Error("当前浏览器无法生成安全请求标识，请升级浏览器后重试。");
+}
+
+function sameJson(left, right) {
+  return Boolean(left && right) && JSON.stringify(left) === JSON.stringify(right);
 }
 
 function metaItem(label, value, tone) {

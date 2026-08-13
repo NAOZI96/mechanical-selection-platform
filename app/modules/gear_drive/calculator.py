@@ -14,14 +14,15 @@ from app.modules.engineering_common import (
     WarningRecord,
     WarningSeverity,
     calculation_status,
+    candidate_source_allows_comparison,
 )
 
 from .schema import GearDriveInput, GearDriveResult
 
 MODULE_ID = "gear_drive"
 MODULE_NAME = "齿轮传动设计"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "gear_drive.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "gear_drive.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "gear_drive.report.1.0.1"
 
 DISCLAIMER = (
@@ -110,7 +111,9 @@ def _warning_records(
                 recommended_action="提供候选型号、许用切向力、定义口径及制造商数据版本。",
             )
         )
-    elif tangential_force_n > source.allowable_tangential_force_n:
+    elif candidate_source_allows_comparison(source.allowable_tangential_force_source_status) and (
+        tangential_force_n > source.allowable_tangential_force_n
+    ):
         warnings.append(
             WarningRecord(
                 code="ALLOWABLE_FORCE_EXCEEDED",
@@ -132,7 +135,9 @@ def _warning_records(
                 recommended_action="提供候选型号的最大节线速度及制造商数据版本。",
             )
         )
-    elif pitch_line_speed_m_s > source.maximum_pitch_line_speed_m_s:
+    elif candidate_source_allows_comparison(source.maximum_pitch_line_speed_source_status) and (
+        pitch_line_speed_m_s > source.maximum_pitch_line_speed_m_s
+    ):
         warnings.append(
             WarningRecord(
                 code="MAXIMUM_SPEED_EXCEEDED",
@@ -258,9 +263,12 @@ def calculate(source: GearDriveInput) -> GearDriveResult:
     )
 
     allowable_force = data.allowable_tangential_force_n
-    force_utilization = None if allowable_force is None else tangential_force / allowable_force
-    force_satisfied = None if allowable_force is None else tangential_force <= allowable_force
-    if allowable_force is not None:
+    force_ready = allowable_force is not None and candidate_source_allows_comparison(
+        data.allowable_tangential_force_source_status
+    )
+    force_utilization = None if not force_ready else tangential_force / allowable_force
+    force_satisfied = None if not force_ready else tangential_force <= allowable_force
+    if force_ready:
         recorder.add(
             "CHECK-001",
             "u_F = F_t/F_t,allow",
@@ -279,9 +287,12 @@ def calculate(source: GearDriveInput) -> GearDriveResult:
         )
 
     maximum_speed = data.maximum_pitch_line_speed_m_s
-    speed_utilization = None if maximum_speed is None else pitch_line_speed / maximum_speed
-    speed_satisfied = None if maximum_speed is None else pitch_line_speed <= maximum_speed
-    if maximum_speed is not None:
+    speed_ready = maximum_speed is not None and candidate_source_allows_comparison(
+        data.maximum_pitch_line_speed_source_status
+    )
+    speed_utilization = None if not speed_ready else pitch_line_speed / maximum_speed
+    speed_satisfied = None if not speed_ready else pitch_line_speed <= maximum_speed
+    if speed_ready:
         recorder.add(
             "CHECK-003",
             "u_v = v/v_max",
@@ -302,12 +313,14 @@ def calculate(source: GearDriveInput) -> GearDriveResult:
     warnings = _warning_records(source, tangential_force, pitch_line_speed)
     force_missing_reason = "未提供带来源的制造商许用切向力，不能执行候选载荷校核。"
     speed_missing_reason = "未提供带来源的制造商最大节线速度，不能执行候选速度校核。"
-    force_classification = (
-        ResultClassification.REVIEW_REQUIRED if allowable_force is None else ResultClassification.PRELIMINARY
+    force_pending_reason = "候选许用切向力来源待确认，确认前不生成候选载荷比较结论。"
+    speed_pending_reason = "候选最大节线速度来源待确认，确认前不生成候选速度比较结论。"
+    force_reason = (
+        force_missing_reason if allowable_force is None else force_pending_reason if not force_ready else None
     )
-    speed_classification = (
-        ResultClassification.REVIEW_REQUIRED if maximum_speed is None else ResultClassification.PRELIMINARY
-    )
+    speed_reason = speed_missing_reason if maximum_speed is None else speed_pending_reason if not speed_ready else None
+    force_classification = ResultClassification.PRELIMINARY if force_ready else ResultClassification.REVIEW_REQUIRED
+    speed_classification = ResultClassification.PRELIMINARY if speed_ready else ResultClassification.REVIEW_REQUIRED
     assumptions = [
         AssumptionRecord(
             key="calculation_basis",
@@ -400,28 +413,28 @@ def calculate(source: GearDriveInput) -> GearDriveResult:
             "",
             force_classification,
             ("CHECK-001",),
-            force_missing_reason if allowable_force is None else None,
+            force_reason,
         ),
         tangential_force_satisfied=_scalar(
             force_satisfied,
             "",
             force_classification,
             ("CHECK-002",),
-            force_missing_reason if allowable_force is None else None,
+            force_reason,
         ),
         pitch_line_speed_utilization=_scalar(
             speed_utilization,
             "",
             speed_classification,
             ("CHECK-003",),
-            speed_missing_reason if maximum_speed is None else None,
+            speed_reason,
         ),
         pitch_line_speed_satisfied=_scalar(
             speed_satisfied,
             "",
             speed_classification,
             ("CHECK-004",),
-            speed_missing_reason if maximum_speed is None else None,
+            speed_reason,
         ),
         unchecked_items=(
             "tooth_root_bending_strength",

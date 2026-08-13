@@ -9,8 +9,8 @@
   {% if public_base_url %}<link rel="canonical" href="{{ public_base_url }}/modules/{{ module.module_id }}">{% endif %}
   <title>{{ module.module_name }}｜机械智选</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/app.css?v=20260725.4">
-  <link rel="stylesheet" href="/static/engineering.css?v=20260725.1">
+  <link rel="stylesheet" href="/static/app.css?v=20260813.1">
+  <link rel="stylesheet" href="/static/engineering.css?v=20260813.1">
 </head>
 <body
   class="engineering-page"
@@ -18,6 +18,7 @@
   data-module-id="{{ module.module_id }}"
   data-module-name="{{ module.module_name }}"
   data-release-status="{{ module.release_status }}"
+  data-calculation-model-version="{{ module.calculation_model_version }}"
 >
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <header class="site-header engineering-header">
@@ -168,6 +169,6 @@
     <p>计算结果不替代适用标准、专项校核、制造商确认或工程审批。</p>
   </footer>
 
-  <script src="/static/engineering-calculator.js?v=20260725.2" defer></script>
+  <script src="/static/engineering-calculator.js?v=20260813.1" defer></script>
 </body>
 </html>

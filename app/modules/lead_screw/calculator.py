@@ -14,14 +14,15 @@ from app.modules.engineering_common import (
     WarningRecord,
     WarningSeverity,
     calculation_status,
+    candidate_source_allows_comparison,
 )
 
 from .schema import LeadScrewInput, LeadScrewResult
 
 MODULE_ID = "lead_screw"
 MODULE_NAME = "丝杆传动选型"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "lead_screw.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "lead_screw.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "lead_screw.report.1.0.1"
 
 DISCLAIMER = (
@@ -161,7 +162,9 @@ def _warning_records(
                 recommended_action="提供完整候选型号、许用轴向载荷口径和制造商数据版本。",
             )
         )
-    elif source.axial_force_n > source.candidate_allowable_axial_load_n:
+    elif candidate_source_allows_comparison(source.candidate_source_status) and (
+        source.axial_force_n > source.candidate_allowable_axial_load_n
+    ):
         warnings.append(
             WarningRecord(
                 code="CANDIDATE_AXIAL_LOAD_EXCEEDED",
@@ -358,10 +361,13 @@ def calculate(source: LeadScrewInput) -> LeadScrewResult:
     )
 
     candidate_allowable = data.candidate_allowable_axial_load_n
-    candidate_utilization = None if candidate_allowable is None else data.axial_force_n / candidate_allowable
-    candidate_margin = None if candidate_allowable is None else candidate_allowable - data.axial_force_n
-    candidate_satisfied = None if candidate_allowable is None else data.axial_force_n <= candidate_allowable
-    if candidate_allowable is not None:
+    candidate_ready = candidate_allowable is not None and candidate_source_allows_comparison(
+        data.candidate_source_status
+    )
+    candidate_utilization = None if not candidate_ready else data.axial_force_n / candidate_allowable
+    candidate_margin = None if not candidate_ready else candidate_allowable - data.axial_force_n
+    candidate_satisfied = None if not candidate_ready else data.axial_force_n <= candidate_allowable
+    if candidate_ready:
         recorder.add(
             "CHECK-004",
             "u_candidate = F/F_candidate,allow",
@@ -393,8 +399,12 @@ def calculate(source: LeadScrewInput) -> LeadScrewResult:
         buckling_satisfied=buckling_satisfied,
     )
     missing_reason = "未提供带来源的候选产品许用轴向载荷，不能作候选承载校核。"
+    pending_reason = "候选产品许用轴向载荷来源待确认，确认前不生成候选承载比较结论。"
+    candidate_reason = (
+        missing_reason if candidate_allowable is None else pending_reason if not candidate_ready else None
+    )
     candidate_classification = (
-        ResultClassification.REVIEW_REQUIRED if candidate_allowable is None else ResultClassification.PRELIMINARY
+        ResultClassification.PRELIMINARY if candidate_ready else ResultClassification.REVIEW_REQUIRED
     )
     assumptions = (
         AssumptionRecord(
@@ -508,21 +518,21 @@ def calculate(source: LeadScrewInput) -> LeadScrewResult:
             "",
             candidate_classification,
             ("CHECK-004",),
-            missing_reason if candidate_allowable is None else None,
+            candidate_reason,
         ),
         candidate_axial_load_margin_n=_scalar(
             candidate_margin,
             "N",
             candidate_classification,
             ("CHECK-006",),
-            missing_reason if candidate_allowable is None else None,
+            candidate_reason,
         ),
         candidate_axial_load_satisfied=_scalar(
             candidate_satisfied,
             "",
             candidate_classification,
             ("CHECK-005",),
-            missing_reason if candidate_allowable is None else None,
+            candidate_reason,
         ),
         unchecked_items=(
             "actual_thread_form_correction",

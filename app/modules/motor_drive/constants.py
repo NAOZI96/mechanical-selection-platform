@@ -2,8 +2,8 @@
 
 MODULE_ID = "motor_drive"
 MODULE_NAME = "电机与驱动功率选型"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "motor_drive.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "motor_drive.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "motor_drive.report.1.0.1"
 
 DISCLAIMER = (

@@ -41,6 +41,7 @@ class DecisionRegressionTests(unittest.TestCase):
                 force_input_location="load_end",
                 reeving_ratio=2,
                 pulley_efficiency=0.95,
+                assumption_sources={"pulley_efficiency": "project_default"},
             )
         )
         self.assertIn(

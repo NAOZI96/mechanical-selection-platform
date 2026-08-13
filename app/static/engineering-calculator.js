@@ -3,6 +3,7 @@
 const root = document.querySelector("[data-engineering-workbench]");
 const moduleId = root?.dataset.moduleId;
 const moduleName = root?.dataset.moduleName || moduleId;
+const currentCalculationModelVersion = root?.dataset.calculationModelVersion || "";
 const form = document.querySelector("#engineering-form");
 const fieldsRoot = document.querySelector("#engineering-fields");
 const schemaLoading = document.querySelector("#schema-loading");
@@ -12,6 +13,11 @@ const emptyState = document.querySelector("#engineering-empty");
 const loadingState = document.querySelector("#engineering-loading");
 const resultContent = document.querySelector("#engineering-result-content");
 const resultStatus = document.querySelector("#engineering-result-status");
+const calculateButton = document.querySelector("#engineering-calculate");
+const loadSampleButton = document.querySelector("#engineering-load-sample");
+const clearButton = document.querySelector("#engineering-clear");
+const htmlReportLink = document.querySelector("#engineering-html-report");
+const pdfReportLink = document.querySelector("#engineering-pdf-report");
 const sessionKey = `engineering.${moduleId}.session.v1`;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -22,6 +28,7 @@ let resultLabels = {};
 let uncheckedLabels = {};
 let assumptionLabels = {};
 let exampleInput = {};
+let pendingSubmission = null;
 
 const classificationLabels = {
   calculated: "理论计算值",
@@ -195,51 +202,72 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
   const previousState = resultState;
+  let submittedInput = null;
+  let logicalSubmission = null;
   setResultState("loading");
-  document.querySelector("#engineering-calculate").disabled = true;
+  setFormLocked(true);
   try {
     const input = readInput();
+    submittedInput = cloneJson(input);
+    logicalSubmission = reuseOrCreateSubmission(submittedInput);
     const data = await fetchJson(
       `/api/v1/modules/${encodeURIComponent(moduleId)}/calculations`,
       {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": logicalSubmission.idempotencyKey,
+        },
         body: JSON.stringify({input}),
       },
       20000,
     );
-    renderSnapshot(data);
-    saveSessionState(input, data);
-  } catch (error) {
-    if (!error?.details) {
-      showFormError(error instanceof Error ? error.message : "无法连接计算服务。");
+    if (!sameJson(readInput(), submittedInput) || !responseMatchesRequest(data, submittedInput)) {
+      discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
+      return;
     }
-    setResultState(previousState);
+    renderSnapshot(data);
+    saveSessionState(submittedInput, data, submittedInput);
+    clearPendingSubmission();
+  } catch (error) {
+    if (!error?.retryable) clearPendingSubmission();
+    if (error?.details?.length) showApiErrors(error);
+    else showRequestError(error);
+    restoreStateAfterFailedRequest(previousState, submittedInput);
   } finally {
-    document.querySelector("#engineering-calculate").disabled = false;
+    setFormLocked(false);
   }
 });
 
-document.querySelector("#engineering-load-sample")?.addEventListener("click", () => {
+loadSampleButton?.addEventListener("click", () => {
+  clearPendingSubmission();
+  invalidateCurrentSnapshot();
+  form.reset();
   form.querySelectorAll("[name]").forEach((control) => {
     const sample = Object.hasOwn(exampleInput, control.name)
       ? exampleInput[control.name]
       : control.dataset.sample === undefined
         ? undefined
         : JSON.parse(control.dataset.sample);
-    if (sample === undefined || sample === null) return;
+    if (sample === undefined || sample === null) {
+      if (control.type === "checkbox") control.checked = false;
+      else control.value = "";
+      return;
+    }
     if (control.type === "checkbox") control.checked = Boolean(sample);
     else control.value = formatControlValue(control, sample);
   });
   clearErrors();
-  saveSessionState(readInput(), null);
+  saveSessionState(readInput());
 });
 
-document.querySelector("#engineering-clear")?.addEventListener("click", () => {
+clearButton?.addEventListener("click", () => {
   if (!window.confirm("确认清空当前模块参数和本标签页中的最近结果吗？已保存的报告不会删除。")) return;
+  clearPendingSubmission();
   form.reset();
   clearErrors();
   window.sessionStorage.removeItem(sessionKey);
+  clearReportLinks();
   setResultState("idle");
 });
 
@@ -248,14 +276,87 @@ document.querySelector("#engineering-back-to-input")?.addEventListener("click", 
   form.querySelector("input, select, textarea")?.focus({preventScroll: true});
 });
 
-form?.addEventListener("input", () => {
+function handleFormMutation() {
+  clearPendingSubmission();
+  clearRetryAction();
+  invalidateCurrentSnapshot();
   validateClientConstraints();
   try {
-    saveSessionState(readInput(), readSessionState()?.snapshot || null);
+    saveSessionState(readInput());
   } catch {
     // Incomplete numeric input is expected while the user is editing.
   }
-});
+}
+
+function clearRetryAction() {
+  formErrors.querySelector(".engineering-error-retry")?.remove();
+  const context = formErrors.querySelector(".engineering-error-context");
+  if (context?.textContent.includes("本次逻辑提交保留了幂等键")) context.remove();
+}
+
+form?.addEventListener("input", handleFormMutation);
+form?.addEventListener("change", handleFormMutation);
+
+function discardMismatchedResponse(message) {
+  clearPendingSubmission();
+  invalidateCurrentSnapshot();
+  saveSessionState(readInput());
+  setResultState("dirty");
+  showFormError(message);
+}
+
+function restoreStateAfterFailedRequest(previousState, submittedInput) {
+  let currentInput;
+  try {
+    currentInput = readInput();
+  } catch {
+    invalidateCurrentSnapshot();
+    setResultState("dirty");
+    return;
+  }
+  if (submittedInput && !sameJson(currentInput, submittedInput)) {
+    invalidateCurrentSnapshot();
+    saveSessionState(currentInput);
+    setResultState("dirty");
+    return;
+  }
+  if (previousState === "result") {
+    setResultState("result");
+    return;
+  }
+  saveSessionState(currentInput);
+  setResultState("dirty");
+}
+
+function responseMatchesRequest(snapshot, submittedInput) {
+  const responseInput = snapshot?.input_original;
+  if (!responseInput || typeof responseInput !== "object") return false;
+  const requestInput = {};
+  Object.entries(inputSchema.properties || {}).forEach(([name, propertySchema]) => {
+    if (Object.hasOwn(submittedInput, name)) {
+      requestInput[name] = submittedInput[name];
+      return;
+    }
+    requestInput[name] = Object.hasOwn(propertySchema, "default") ? propertySchema.default : null;
+  });
+  return sameCanonicalJson(responseInput, requestInput);
+}
+
+function sameCanonicalJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return typeof value === "string" ? value.trim() : value;
+}
 
 function readInput() {
   const input = {};
@@ -308,8 +409,8 @@ function renderSnapshot(snapshot, {focus = true} = {}) {
   renderSteps(snapshot.steps || []);
   renderAssumptions(snapshot.assumptions || []);
   renderUnchecked(snapshot.results?.unchecked_items || []);
-  document.querySelector("#engineering-html-report").href = snapshot.links.html_report;
-  document.querySelector("#engineering-pdf-report").href = snapshot.links.pdf;
+  htmlReportLink.href = snapshot.links.html_report;
+  pdfReportLink.href = snapshot.links.pdf;
   if (focus) {
     resultContent.focus({preventScroll: true});
     resultContent.scrollIntoView({behavior: scrollBehavior(), block: "start"});
@@ -429,10 +530,48 @@ function metaItem(label, value) {
 function setResultState(state) {
   resultState = state;
   resultsPanel.dataset.state = state;
-  emptyState.hidden = state !== "idle";
+  resultsPanel.setAttribute("aria-busy", String(state === "loading"));
+  emptyState.hidden = state !== "idle" && state !== "dirty";
   loadingState.hidden = state !== "loading";
   resultContent.hidden = state !== "result";
-  resultStatus.textContent = state === "loading" ? "计算中" : state === "result" ? "已生成快照" : "等待计算";
+  emptyState.textContent = state === "dirty"
+    ? "参数已修改。旧快照与报告链接已隐藏，请按当前参数重新计算。"
+    : "填写左侧参数后执行计算。结果会显示数值等级、公式编号、警告、来源和未完成专项校核。";
+  resultStatus.textContent = state === "loading"
+    ? "计算中"
+    : state === "result"
+      ? "已生成快照"
+      : state === "dirty"
+        ? "需要重新计算"
+        : "等待计算";
+}
+
+function invalidateCurrentSnapshot() {
+  const persistedState = readSessionState();
+  const hadSnapshot = resultState === "result" || resultState === "dirty" || Boolean(persistedState?.snapshot);
+  clearReportLinks();
+  if (persistedState?.snapshot) {
+    saveSessionState(persistedState.input || {});
+  }
+  if (hadSnapshot) setResultState("dirty");
+}
+
+function clearReportLinks() {
+  htmlReportLink.removeAttribute("href");
+  pdfReportLink.removeAttribute("href");
+}
+
+function setFormLocked(locked) {
+  Array.from(form.elements).forEach((control) => {
+    if (locked && !control.disabled) {
+      control.disabled = true;
+      control.dataset.requestLock = "true";
+    } else if (!locked && control.dataset.requestLock === "true") {
+      control.disabled = false;
+      delete control.dataset.requestLock;
+    }
+  });
+  calculateButton.textContent = locked ? "正在计算并保存…" : "执行计算与校核";
 }
 
 function clearErrors() {
@@ -448,7 +587,11 @@ function clearErrors() {
 
 function showApiErrors(error) {
   const details = error?.details || [];
-  showFormError(error?.message || "输入未通过校验。", details);
+  showFormError(
+    error?.message || "输入未通过校验。",
+    details,
+    {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+  );
   let firstInvalidControl = null;
   details.forEach((detail) => {
     const fieldParts = String(detail.field || "").split(".").filter(Boolean);
@@ -469,7 +612,7 @@ function showApiErrors(error) {
   firstInvalidControl?.focus();
 }
 
-function showFormError(message, details = []) {
+function showFormError(message, details = [], {requestId = "", retryable = false} = {}) {
   formErrors.replaceChildren();
   const summary = document.createElement("strong");
   summary.textContent = message;
@@ -483,9 +626,44 @@ function showFormError(message, details = []) {
     });
     formErrors.append(list);
   }
+  if (requestId || retryable) {
+    const context = document.createElement("p");
+    context.className = "engineering-error-context";
+    if (retryable) {
+      context.append("当前页面未收到可用的新快照。本次逻辑提交保留了幂等键，可安全重试；请保留请求 ID 以便核查。");
+    }
+    if (requestId) {
+      if (retryable) context.append(" ");
+      context.append("请求 ID：");
+      const code = document.createElement("code");
+      code.textContent = requestId;
+      context.append(code);
+    }
+    formErrors.append(context);
+  }
+  if (retryable) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "button button--secondary engineering-error-retry";
+    retry.textContent = "安全重试本次计算";
+    retry.addEventListener("click", () => {
+      if (!pendingSubmission) return;
+      retry.disabled = true;
+      form.requestSubmit();
+    });
+    formErrors.append(retry);
+  }
   formErrors.tabIndex = -1;
   formErrors.hidden = false;
   if (!details.length) formErrors.focus();
+}
+
+function showRequestError(error) {
+  showFormError(
+    error instanceof Error ? error.message : "无法连接计算服务。",
+    [],
+    {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+  );
 }
 
 function showFatal(message) {
@@ -531,32 +709,82 @@ function scrollBehavior() {
 
 async function fetchJson(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
+  const clientRequestId = createOpaqueId("request");
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {...options, signal: controller.signal});
+    const response = await fetch(url, {
+      ...options,
+      headers: {...(options.headers || {}), "X-Request-ID": clientRequestId},
+      signal: controller.signal,
+    });
+    const headerRequestId = response.headers.get("x-request-id") || clientRequestId;
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      throw new Error("服务返回了无法识别的响应，请稍后重试。");
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw requestError("服务返回了非 JSON 响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
     }
-    const data = await response.json();
+    const responseText = await response.text();
+    if (!responseText.trim()) {
+      throw requestError("服务返回了空响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw requestError("服务返回了无效 JSON，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
     if (!response.ok) {
-      if (response.status === 422) {
-        const validationError = new Error(data?.error?.message || "输入未通过校验。");
-        validationError.details = data?.error;
-        throw validationError;
-      }
-      throw new Error(data?.error?.message || `请求失败（${response.status}）`);
+      const apiError = data?.error || {};
+      throw requestError(apiError.message || `请求失败（HTTP ${response.status}）。`, {
+        details: Array.isArray(apiError.details)
+          ? apiError.details.filter((detail) => detail && typeof detail === "object")
+          : [],
+        requestId: apiError.request_id || headerRequestId,
+        retryable: isRetryableHttpStatus(response.status),
+        status: response.status,
+      });
     }
     return data;
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
-    if (error?.details) {
-      showApiErrors(error.details);
+    if (error?.name === "AbortError") {
+      throw requestError("请求超时，请检查网络或服务状态后安全重试。", {
+        requestId: clientRequestId,
+        retryable: true,
+      });
     }
-    throw error;
+    if (error?.isRequestError) throw error;
+    throw requestError("无法连接计算服务，请确认应用仍在运行。", {
+      requestId: clientRequestId,
+      retryable: true,
+    });
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function requestError(message, {details = [], requestId = "", retryable = false, status = null} = {}) {
+  const error = new Error(message);
+  error.details = details;
+  error.requestId = requestId;
+  error.retryable = retryable;
+  error.status = status;
+  error.isRequestError = true;
+  return error;
+}
+
+function isRetryableHttpStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 function formatValue(value) {
@@ -571,9 +799,15 @@ function formatValue(value) {
   return String(value);
 }
 
-function saveSessionState(input, snapshot) {
+function saveSessionState(input, snapshot = null, snapshotInput = null) {
   try {
-    window.sessionStorage.setItem(sessionKey, JSON.stringify({version: 1, input, snapshot}));
+    window.sessionStorage.setItem(sessionKey, JSON.stringify({
+      version: 3,
+      calculationModelVersion: currentCalculationModelVersion,
+      input,
+      snapshot,
+      snapshotInput,
+    }));
   } catch (error) {
     console.warn("无法保存当前模块会话。", error);
   }
@@ -584,7 +818,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(sessionKey);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 1 ? state : null;
+    return [2, 3].includes(state?.version) && state.input && typeof state.input === "object" ? state : null;
   } catch {
     return null;
   }
@@ -599,9 +833,50 @@ function restoreSessionState() {
     if (control.type === "checkbox") control.checked = Boolean(value);
     else control.value = formatControlValue(control, value);
   });
-  if (state.snapshot?.module_id === moduleId) renderSnapshot(state.snapshot, {focus: false});
+  const versionMatches = state.version === 3
+    && state.calculationModelVersion === currentCalculationModelVersion
+    && state.snapshot?.calculation_model_version === currentCalculationModelVersion;
+  if (versionMatches && state.snapshot?.module_id === moduleId && sameJson(state.input, state.snapshotInput)) {
+    renderSnapshot(state.snapshot, {focus: false});
+  } else {
+    clearReportLinks();
+    if (state.snapshot || state.version !== 3 || state.calculationModelVersion !== currentCalculationModelVersion) {
+      saveSessionState(state.input || {});
+    }
+    setResultState("dirty");
+  }
 }
 
 function formatControlValue(control, value) {
   return control.dataset.jsonType === "json" ? JSON.stringify(value, null, 2) : String(value);
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sameJson(left, right) {
+  return Boolean(left && right) && JSON.stringify(left) === JSON.stringify(right);
+}
+
+function reuseOrCreateSubmission(input) {
+  if (pendingSubmission && sameCanonicalJson(pendingSubmission.input, input)) return pendingSubmission;
+  pendingSubmission = {
+    idempotencyKey: createOpaqueId(moduleId || "engineering"),
+    input: canonicalJson(input),
+  };
+  return pendingSubmission;
+}
+
+function clearPendingSubmission() {
+  pendingSubmission = null;
+}
+
+function createOpaqueId(prefix) {
+  if (typeof window.crypto?.randomUUID === "function") return `${prefix}-${window.crypto.randomUUID()}`;
+  if (typeof window.crypto?.getRandomValues === "function") {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return `${prefix}-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  throw new Error("当前浏览器无法生成安全请求标识，请升级浏览器后重试。");
 }

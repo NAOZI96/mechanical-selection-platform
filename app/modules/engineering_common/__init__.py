@@ -18,6 +18,7 @@ from .schema import (
     WarningRecord,
     WarningSeverity,
     calculation_status,
+    candidate_source_allows_comparison,
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "WarningRecord",
     "WarningSeverity",
     "build_engineering_report_context",
+    "candidate_source_allows_comparison",
     "calculation_status",
 ]

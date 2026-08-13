@@ -26,6 +26,14 @@ def valid_values() -> dict[str, object]:
         "reeving_ratio": 1,
         "brake_safety_factor": 1.5,
         "duty_class": "测试工况，仅提示",
+        "assumption_sources": {
+            "service_factor": "user_input",
+            "pitch_factor": "user_input",
+            "brake_safety_factor": "user_input",
+            "pulley_efficiency": "user_input",
+            "dead_wrap_count": "user_input",
+            "minimum_dd_ratio": "user_input",
+        },
     }
 
 
@@ -64,6 +72,33 @@ class WinchValidationTests(unittest.TestCase):
         ):
             with self.subTest(field=field):
                 self.assert_invalid(field, 0.999999)
+
+        source_controlled_values = {
+            "service_factor": 1.3,
+            "pitch_factor": 1.2,
+            "brake_safety_factor": 1.6,
+            "pulley_efficiency": 0.9,
+            "dead_wrap_count": 4,
+            "minimum_dd_ratio": 21,
+            "motor_duty_type": "S5",
+            "duty_cycle_percent": 50,
+            "starts_per_hour": 120,
+            "supply_voltage": 440,
+            "supply_frequency": 60,
+        }
+        for field, value in source_controlled_values.items():
+            with self.subTest(field=field, source="project_default"):
+                values = valid_values()
+                values[field] = value
+                sources = dict(values["assumption_sources"])  # type: ignore[arg-type]
+                sources[field] = "project_default"
+                values["assumption_sources"] = sources
+                with self.assertRaisesRegex(ValidationError, "必须明确选择"):
+                    WinchDrumInput(**values)
+
+                sources[field] = "user_input"
+                values["assumption_sources"] = sources
+                self.assertEqual(getattr(WinchDrumInput(**values), field), value)
 
     def test_max_layers_must_be_positive_strict_integer(self) -> None:
         for value in (0, -1, 1.0, 1.5, True, 101):
@@ -123,6 +158,41 @@ class WinchValidationTests(unittest.TestCase):
     def test_backdrive_efficiency_has_no_numeric_default(self) -> None:
         model = WinchDrumInput(**valid_values())
         self.assertIsNone(model.backdrive_efficiency)
+
+        for field in ("approved_core_ratio", "backdrive_efficiency"):
+            with self.subTest(field=field, source="project_default"):
+                values = valid_values()
+                sources = dict(values["assumption_sources"])  # type: ignore[arg-type]
+                sources[field] = "project_default"
+                values["assumption_sources"] = sources
+                if field == "approved_core_ratio":
+                    values[field] = 20
+                else:
+                    values[field] = 0.8
+                with self.assertRaisesRegex(ValidationError, "没有项目数值默认"):
+                    WinchDrumInput(**values)
+
+                values[field] = None
+                with self.assertRaisesRegex(ValidationError, "没有项目数值默认"):
+                    WinchDrumInput(**values)
+
+        default_values = valid_values()
+        default_values.update(
+            {
+                "service_factor": 1.25,
+                "pitch_factor": 1.10,
+                "pulley_efficiency": 0.95,
+                "brake_safety_factor": 1.50,
+                "minimum_dd_ratio": 20,
+            }
+        )
+        default_values.pop("assumption_sources")
+        defaults = WinchDrumInput(**default_values)
+        self.assertEqual(defaults.motor_duty_type, "S3")
+        self.assertEqual(defaults.duty_cycle_percent, 40)
+        self.assertEqual(defaults.starts_per_hour, 60)
+        self.assertEqual(defaults.supply_voltage, 380)
+        self.assertEqual(defaults.supply_frequency, 50)
 
     def test_text_fields_are_trimmed_and_not_blank(self) -> None:
         model = WinchDrumInput(**{**valid_values(), "motor_type": "  motor  "})

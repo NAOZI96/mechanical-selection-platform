@@ -8,9 +8,9 @@
 
 警告包含 `code`、`severity`（`info|warning|high|blocking`）、`title`、`message`、`affected_result`、`recommended_action`。发布门禁只存状态：机械计算、产品范围、软件验收、质量安全和总发布状态；不存人员姓名或计划/实际日期。
 
-Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。Phase 8 通过通用迁移 `005_calculation_release_status.sql` 增加可空发布状态列：新计算冻结注册表中的当次状态，迁移前旧记录保留 `NULL` 并读取为 `legacy_unknown`，不得按当前注册表回填。
+Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。Phase 8 通过通用迁移 `005_calculation_release_status.sql` 增加可空发布状态列：新计算冻结注册表中的当次状态，迁移前旧记录保留 `NULL` 并读取为 `legacy_unknown`，不得按当前注册表回填。Platform 0.5.3 再通过 `006_calculation_idempotency.sql` 增加可空幂等元数据与 `(module_id, idempotency_key)` 部分唯一索引；旧记录和不带键的新请求均保持空值。
 
-文档版本：0.5.0
+文档版本：0.5.3
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 
@@ -31,7 +31,7 @@ calculation
 | `id` | TEXT | PK | UUID。 |
 | `module_id` | TEXT | NOT NULL, index | 如 `winch_drum`、`transmission_check`、`gear_drive`；由保存时注册模块决定。 |
 | `module_version` | TEXT | NOT NULL | SemVer 字符串。 |
-| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.0`。 |
+| `calculation_model_version` | TEXT | NOT NULL, index | 如 `winch_drum.calc.1.2.1`；旧快照保留其原始版本。 |
 | `release_status` | TEXT | NULL, CHECK | 迁移 `005` 新增；新记录为 `internal_testing` / `engineering_review` / `released`，旧记录允许 `NULL` 并在读取层映射为 `legacy_unknown`。 |
 | `status` | TEXT | NOT NULL, CHECK | `completed` / `completed_with_warnings`。校验失败不建成功记录。 |
 | `input_original_json` | TEXT | NOT NULL | 原始值、显示单位和用户语义选择。 |
@@ -45,6 +45,8 @@ calculation
 | `report_context_json` | TEXT | NULL | 计算时物化的报告 DTO；旧迁移记录允许为空并由兼容读取路径映射。 |
 | `snapshot_schema_version` | INTEGER | NOT NULL | JSON 快照结构版本；当前写入 4。 |
 | `input_hash` | TEXT | NOT NULL | 规范化输入 + 模型版本的 SHA-256，用于诊断/可选去重。 |
+| `idempotency_key` | TEXT | NULL, CHECK, partial unique with `module_id` | 可选请求键；仅接受 1～128 个 `[A-Za-z0-9._~-]` ASCII 字符。迁移前记录及无键请求为 `NULL`。 |
+| `request_fingerprint` | TEXT | NULL, CHECK | 幂等键对应规范化请求的 64 位小写十六进制指纹；只用于区分同键同请求与同键异请求，不替代工程 `input_hash`。键为空时该字段也必须为空。 |
 | `created_at` | TEXT | NOT NULL, index | UTC ISO 8601。 |
 | `request_id` | TEXT | NOT NULL | 日志关联。 |
 
@@ -104,7 +106,7 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 
 逐层数组中的每层保存层号、工作直径、每圈长度、完整/使用圈数、毛/可用/累计容量。展示字符串不作为数值真源。
 
-扩展模块结果同样使用带 `value`、`unit`、`classification`、`formula_ids` 和可选 `reason` 的标量对象；模块专属结果保存在 `results_json`，不可计算结论使用 `value=null` 且分类为 `review_required`。只有 `winch_drum` 需要逐层容量数组。
+扩展模块结果同样使用带 `value`、`unit`、`classification`、`formula_ids` 和可选 `reason` 的标量对象；模块专属结果保存在 `results_json`。候选数据缺失或候选来源为 `pending_confirmation` 时，依赖候选的比较结论使用 `value=null` 且分类为 `review_required`，原始候选值/引用/来源仍保存在输入与报告上下文。只有 `winch_drum` 需要逐层容量数组。
 
 ### 5.3 假设与确认
 
@@ -116,28 +118,31 @@ SI 快照用明确单位，例如 `rated_line_pull_n`、`rope_diameter_m`。可�
 - `status=completed` 时不得有 high 警告；有任何警告时使用 `completed_with_warnings`。
 - 所有 `review_required` 结果必须为 `value=null` 并有原因。
 - `report_artifacts.status=ready` 时 path、hash、size、completed_at 均非空。
+- 应用写入契约要求 `idempotency_key` 非空时同步写入 `request_fingerprint`；迁移 `006` 的 `CHECK` 同时约束键的长度/字符集、指纹的 64 位小写十六进制格式以及二者的成对空值关系。部分唯一索引只限制相同模块内的非空键，不同模块可使用相同键，多个 `NULL` 不受去重约束；迁移不回填或改写旧行。
 - 数据库时间统一 UTC，报告按配置显示时区并标注。
 - 数据库级 CHECK 覆盖有限的状态约束；复杂工程约束由应用层验证和测试覆盖。
 
 ## 7. 迁移、保留与恢复
 
-- 使用轻量迁移工具或有序 SQL 迁移；生产设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动只做完整迁移/数据库就绪检查，不在未经备份的生产库上自动迁移。
+- 使用有序 SQL 迁移；每份迁移 SQL 与版本登记原子提交。生产设置 `DESIGN_AGENT_AUTO_MIGRATE=false`，启动核对迁移台账，并把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对后执行 `quick_check`，不在未经备份的生产库上自动迁移。
 - 迁移前执行 SQLite 在线备份并记录应用/模型版本；恢复演练包含主库、WAL/SHM 处理和文件权限。
-- 当前不自动删除计算记录或 PDF；项目持久化容量上限 5 GiB，达到 85% 后停止生成新 PDF。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
+- 当前不自动删除计算记录或 PDF；SQLite 主库、WAL/SHM 与报告共享 5 GiB 预算，85% 停止生成新 PDF，95% 或磁盘低于最小余量时停止新增快照但保留历史读取。若未来启用按期清理，必须先冻结策略并优先删除可再生 PDF。
 - 备份至少包含 SQLite 一致性备份与报告清单；schema v4 快照可按其保存的报告上下文重建 PDF，但模板版本/字体变化可能改变二进制。缺少计算时发布状态的旧快照不得重建 PDF，因此遗留缓存和重要报告需单独归档。
 
-## 8. 迁移 `005` 与旧记录兼容
+## 8. 迁移 `005`、`006` 与旧记录兼容
 
-- 当前迁移清单为 `001_initial.sql`～`005_calculation_release_status.sql`。`005` 只向 `calculations` 增加允许为空且限定枚举的 `release_status`，不增加模块专属列，也不改写 JSON 计算结果。
+- 当前迁移清单为 `001_initial.sql`～`006_calculation_idempotency.sql`。`005` 只向 `calculations` 增加允许为空且限定枚举的 `release_status`；`006` 增加带上述 `CHECK` 的可空 `idempotency_key`、`request_fingerprint`，以及 `(module_id, idempotency_key) WHERE idempotency_key IS NOT NULL` 唯一索引。二者都不增加模块专属列，也不改写 JSON 计算结果。
 - 新写入记录必须保存注册模块当时的有效发布状态，并写入 snapshot schema v4 / report context schema v4。发布状态不是计算结果，改变当前注册表状态不会改变历史记录。
 - 迁移前记录的列值为 `NULL`，repository 统一返回 `legacy_unknown`；该值表示“当时状态未记录”，只能按内部测试边界展示，不能推断为任何历史放行状态。
 - HTML 可读取旧报告上下文；旧记录缺少上下文时允许从已保存快照映射展示，但不得调用计算器。报告模型对缺失字段使用 `legacy_unknown` 默认值。
 - PDF 服务先查找与旧记录模板版本匹配的 ready artifact，并校验相对路径、大小和 SHA-256。校验通过的遗留缓存可下载并带 legacy 响应头/Warning/文件名前缀；没有有效缓存（含缓存损坏）时返回 `409 LEGACY_RELEASE_STATUS_MISSING`，不得用当前发布状态重新生成。
-- 远程部署必须先在线备份，再受控应用 `005` 并执行 `--check`、旧快照/缓存读取和隔离备份恢复；既有 Phase 4 的 `001`～`004` 证据不覆盖本迁移。
+- 迁移 `006` 不回填旧行；无键请求继续生成独立快照。带键请求首次写入键和指纹，同键同指纹返回原记录，同键异指纹返回 `409 IDEMPOTENCY_KEY_REUSED`，不得覆盖原记录。
+- 远程部署必须先在线备份，再受控迁移至 `006` 并执行 `--check`、旧快照/缓存读取、幂等重放/冲突验证和隔离备份恢复；既有 Phase 4 的 `001`～`004` 证据不覆盖 `005` 或 `006`。
 
 ## 9. 数据模型验收
 
-- 可以通过通用表保存并完整读取 9 个已注册模块的 schema v4 快照、HTML 报告上下文和 PDF artifact；仅增加计算级通用发布状态列，不增加模块专属表/列。
+- 可以通过通用表保存并完整读取 9 个已注册模块的 schema v4 快照、HTML 报告上下文和 PDF artifact；新增字段仅为计算级通用发布状态和幂等元数据，不增加模块专属表/列。
 - 旧计算模型版本在新版本发布后仍能读取；缺少计算时发布状态的旧记录仅能下载经完整性验证的既有缓存 PDF，其他 PDF 请求返回受控 `LEGACY_RELEASE_STATUS_MISSING`，不得用当前模型或当前发布状态静默补算。
 - 数据库约束拒绝非法状态组合；应用测试验证 JSON schema。
+- 部分唯一索引拒绝同一模块重复占用非空幂等键；应用层区分同规范请求重放与异请求冲突，无键路径保持原有主动新建语义。
 - 在线备份期间可继续只读/短写操作，恢复后记录数、哈希和抽样报告一致。

@@ -495,5 +495,83 @@ class LeadScrewTests(unittest.TestCase):
         )
 
 
+class PendingCandidateSourceContractTests(unittest.TestCase):
+    def test_pending_candidate_sources_do_not_produce_comparison_conclusions(self) -> None:
+        cases = (
+            (
+                "transmission_check",
+                calculate_transmission,
+                TransmissionCheckInput,
+                {**transmission_values(), "candidate_source_status": "pending_confirmation"},
+                (
+                    "candidate_torque_utilization",
+                    "candidate_torque_satisfied",
+                    "candidate_torque_margin_nm",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003"},
+                "CANDIDATE_DATA_PENDING",
+            ),
+            (
+                "gear_drive",
+                calculate_gear,
+                GearDriveInput,
+                {
+                    **gear_values(),
+                    "allowable_tangential_force_source_status": "pending_confirmation",
+                    "maximum_pitch_line_speed_source_status": "pending_confirmation",
+                },
+                (
+                    "tangential_force_utilization",
+                    "tangential_force_satisfied",
+                    "pitch_line_speed_utilization",
+                    "pitch_line_speed_satisfied",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003", "CHECK-004"},
+                "MANUFACTURER_LIMIT_PENDING",
+            ),
+            (
+                "shaft_bearing",
+                calculate_shaft_bearing,
+                ShaftBearingInput,
+                {
+                    **shaft_bearing_values(),
+                    "allowable_stress_source_status": "pending_confirmation",
+                },
+                (
+                    "allowable_stress_utilization",
+                    "allowable_stress_satisfied",
+                    "allowable_stress_margin_pa",
+                ),
+                {"CHECK-001", "CHECK-002", "CHECK-003"},
+                "ALLOWABLE_STRESS_PENDING",
+            ),
+            (
+                "lead_screw",
+                calculate_lead_screw,
+                LeadScrewInput,
+                {**lead_screw_values(), "candidate_source_status": "pending_confirmation"},
+                (
+                    "candidate_axial_load_utilization",
+                    "candidate_axial_load_satisfied",
+                    "candidate_axial_load_margin_n",
+                ),
+                {"CHECK-004", "CHECK-005", "CHECK-006"},
+                "CANDIDATE_DATA_PENDING",
+            ),
+        )
+
+        for module_id, calculator, input_model, payload, fields, comparison_ids, warning_code in cases:
+            with self.subTest(module_id=module_id):
+                result = calculator(input_model(**payload))
+                for field in fields:
+                    scalar = getattr(result, field)
+                    self.assertIsNone(scalar.value)
+                    self.assertIs(scalar.classification, ResultClassification.REVIEW_REQUIRED)
+                    self.assertIn("来源待确认", scalar.reason or "")
+                recorded_ids = {step.formula_id for step in result.calculation_steps}
+                self.assertTrue(comparison_ids.isdisjoint(recorded_ids))
+                self.assertIn(warning_code, {warning.code for warning in result.warnings})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ from app.modules.engineering_common import (
     WarningRecord,
     WarningSeverity,
     calculation_status,
+    candidate_source_allows_comparison,
 )
 
 from .schema import (
@@ -24,8 +25,8 @@ from .schema import (
 
 MODULE_ID = "transmission_check"
 MODULE_NAME = "机械传动快速校核"
-MODULE_VERSION = "1.0.0"
-CALCULATION_MODEL_VERSION = "transmission_check.calc.1.0.0"
+MODULE_VERSION = "1.0.1"
+CALCULATION_MODEL_VERSION = "transmission_check.calc.1.0.1"
 REPORT_TEMPLATE_VERSION = "transmission_check.report.1.0.1"
 
 DISCLAIMER = (
@@ -130,7 +131,9 @@ def _warnings(data: TransmissionCheckInput, output_torque_nm: float) -> tuple[Wa
                 recommended_action="提供候选型号、额定输出转矩、数据来源和版本后执行候选校核。",
             )
         )
-    elif output_torque_nm > data.candidate_rated_output_torque_nm:
+    elif candidate_source_allows_comparison(data.candidate_source_status) and (
+        output_torque_nm > data.candidate_rated_output_torque_nm
+    ):
         warnings.append(
             WarningRecord(
                 code="CANDIDATE_TORQUE_EXCEEDED",
@@ -244,10 +247,11 @@ def calculate(source: TransmissionCheckInput) -> TransmissionCheckResult:
     output_torque_nm = stage_torque
     output_power_w = output_speed_rad_s * output_torque_nm
     candidate_rating = data.candidate_rated_output_torque_nm
-    candidate_utilization = None if candidate_rating is None else output_torque_nm / candidate_rating
-    candidate_margin = None if candidate_rating is None else candidate_rating - output_torque_nm
-    candidate_satisfied = None if candidate_rating is None else output_torque_nm <= candidate_rating
-    if candidate_rating is not None:
+    candidate_ready = candidate_rating is not None and candidate_source_allows_comparison(data.candidate_source_status)
+    candidate_utilization = None if not candidate_ready else output_torque_nm / candidate_rating
+    candidate_margin = None if not candidate_ready else candidate_rating - output_torque_nm
+    candidate_satisfied = None if not candidate_ready else output_torque_nm <= candidate_rating
+    if candidate_ready:
         recorder.add(
             "CHECK-001",
             "u_T = T_out / T_candidate,rated",
@@ -275,8 +279,16 @@ def calculate(source: TransmissionCheckInput) -> TransmissionCheckResult:
 
     warnings = _warnings(source, output_torque_nm)
     missing_candidate_reason = "未提供带来源的候选额定输出转矩，不能作候选转矩校核。"
+    pending_candidate_reason = "候选额定输出转矩来源待确认，确认前不生成候选转矩比较结论。"
+    candidate_reason = (
+        missing_candidate_reason
+        if candidate_rating is None
+        else pending_candidate_reason
+        if not candidate_ready
+        else None
+    )
     candidate_classification = (
-        ResultClassification.REVIEW_REQUIRED if candidate_rating is None else ResultClassification.PRELIMINARY
+        ResultClassification.PRELIMINARY if candidate_ready else ResultClassification.REVIEW_REQUIRED
     )
     assumptions: list[AssumptionRecord] = [
         AssumptionRecord(
@@ -353,21 +365,21 @@ def calculate(source: TransmissionCheckInput) -> TransmissionCheckResult:
             "",
             candidate_classification,
             ("CHECK-001",),
-            missing_candidate_reason if candidate_rating is None else None,
+            candidate_reason,
         ),
         candidate_torque_margin_nm=_scalar(
             candidate_margin,
             "N*m",
             candidate_classification,
             ("CHECK-003",),
-            missing_candidate_reason if candidate_rating is None else None,
+            candidate_reason,
         ),
         candidate_torque_satisfied=_scalar(
             candidate_satisfied,
             "",
             candidate_classification,
             ("CHECK-002",),
-            missing_candidate_reason if candidate_rating is None else None,
+            candidate_reason,
         ),
         stage_results=tuple(stage_results),
         unchecked_items=(
