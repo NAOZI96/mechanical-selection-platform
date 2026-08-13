@@ -22,10 +22,10 @@
       </div>
       <div>
         <h1>{{ message }}</h1>
-        <p>当前请求没有完成。请检查地址，或返回模块中心继续使用可进入的工程计算工作台。</p>
+        <p>{{ description | default('当前请求没有完成。请检查地址，或返回模块中心继续使用可进入的工程计算工作台。', true) }}</p>
         <div class="error-actions">
-          <a class="button button--primary" href="/">返回平台首页</a>
-          <a class="button button--secondary" href="/#modules">浏览功能模块</a>
+          <a class="button button--primary" href="{{ primary_href | default('/', true) }}">{{ primary_label | default('返回平台首页', true) }}</a>
+          <a class="button button--secondary" href="{{ secondary_href | default('/#modules', true) }}">{{ secondary_label | default('浏览功能模块', true) }}</a>
         </div>
         <small>请求 ID：<code>{{ request_id }}</code></small>
       </div>

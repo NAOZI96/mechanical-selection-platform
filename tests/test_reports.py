@@ -53,6 +53,32 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.json()["error"]["code"], "PDF_BUSY")
         self.assertEqual(response.headers["retry-after"], "2")
+        self.assertEqual(response.headers["vary"], "Accept")
+
+    def test_browser_pdf_failure_returns_to_branded_html_report(self) -> None:
+        created = self._create()
+        report_service = self.app.state.report_service
+        self.assertTrue(report_service._semaphore.acquire(blocking=False))
+        try:
+            response = self.client.get(
+                created["links"]["pdf"],
+                headers={"Accept": "text/html"},
+            )
+        finally:
+            report_service._semaphore.release()
+
+        request_id = response.headers["x-request-id"]
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertEqual(response.headers["vary"], "Accept")
+        self.assertEqual(response.headers["retry-after"], "2")
+        self.assertIn("PDF 报告暂时无法下载", response.text)
+        self.assertIn("PDF 渲染器正忙，请稍后重试", response.text)
+        self.assertIn("PDF_BUSY", response.text)
+        self.assertIn("2 秒后重试", response.text)
+        self.assertIn(f'href="{created["links"]["html_report"]}">返回 HTML 报告</a>', response.text)
+        self.assertIn(f'href="{created["links"]["pdf"]}">重试 PDF 下载</a>', response.text)
+        self.assertIn(request_id, response.text)
 
     def test_pdf_timeout_is_isolated_and_records_failed_artifact(self) -> None:
         created = self._create()
@@ -146,6 +172,10 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         html_report = self.client.get(created["links"]["html_report"])
         self.assertEqual(html_report.status_code, 200)
         self.assertIn("未记录（按内部测试边界处理）（legacy_unknown）", html_report.text)
+        self.assertIn(
+            f'data-filename="legacy-winch_drum-{created["calculation_id"]}.pdf"',
+            html_report.text,
+        )
 
         pdf = self.client.get(created["links"]["pdf"])
         self.assertEqual(pdf.status_code, 409)

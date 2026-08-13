@@ -1,6 +1,6 @@
 # 系统架构设计
 
-文档版本：0.5.3
+文档版本：0.5.4
 适用阶段：Phase 8 九模块产品候选版、发布状态数据治理与工程发布门禁
 
 ## 1. 架构目标与约束
@@ -167,4 +167,4 @@ data/
 - snapshot/report context schema v4 保存计算时发布状态；有效遗留缓存 PDF 可读，无有效缓存时稳定返回 409 且不重算。
 - 可选 `Idempotency-Key` 在模块内防止相同规范请求重复落库，异请求复用键返回 409；未提供键时仍生成新的 calculation ID。
 
-当前 Platform 0.5.3 候选版包含 Phase 8 的 `005_calculation_release_status.sql` 以及新的 `006_calculation_idempotency.sql`，但没有新增常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块因待确认候选比较门禁升级为各自 `*.calc.1.0.1`。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005`、`006` 与当前九模块版本的目标机复验。
+当前 Platform 0.5.4 候选版包含 Phase 8 的 `005_calculation_release_status.sql`、`006_calculation_idempotency.sql` 以及同源报告 PDF 下载控制器，但没有新增常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块因待确认候选比较门禁升级为各自 `*.calc.1.0.1`。PDF 下载控制器只消费既有报告端点：失败保留 HTML 报告并显示可追踪信息，直接浏览器导航按内容协商返回品牌错误页。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005`、`006` 与当前九模块版本的目标机复验。

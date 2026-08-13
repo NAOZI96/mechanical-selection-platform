@@ -58,6 +58,21 @@ p { line-height: 1.75; }
 .action-button--secondary { color: var(--report-navy); background: #fff; }
 .action-button:hover { filter: brightness(.94); }
 .action-button:focus-visible { outline: 3px solid #0f647b; outline-offset: 3px; }
+.action-button[aria-disabled="true"] { cursor: wait; opacity: .68; pointer-events: none; }
+.report-download-status {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  margin: 2px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid #2563eb;
+  color: #334155;
+  background: #eff6ff;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.report-download-status[data-state="success"] { border-color: #15803d; color: #166534; background: #f0fdf4; }
+.report-download-status[data-state="error"] { border-color: #dc2626; color: #991b1b; background: #fef2f2; }
+.report-download-status[hidden] { display: none; }
 .metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 8px 28px; }
 .metadata div { display: grid; grid-template-columns: 132px 1fr; padding: 8px 0; border-bottom: 1px solid #e6ebf0; gap: 10px; }
 dt { color: var(--report-muted); font-size: 12.5px; }

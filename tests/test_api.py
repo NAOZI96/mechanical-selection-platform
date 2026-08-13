@@ -73,7 +73,7 @@ class ApiTests(unittest.TestCase):
     def test_health_module_discovery_and_schema(self) -> None:
         self.assertEqual(self.client.get("/health/live").json(), {"status": "live"})
         self.assertEqual(self.client.get("/health/ready").json(), {"status": "ready"})
-        self.assertEqual(self.client.get("/openapi.json").json()["info"]["version"], "0.5.3")
+        self.assertEqual(self.client.get("/openapi.json").json()["info"]["version"], "0.5.4")
         modules = self.client.get("/api/v1/modules").json()
         self.assertEqual(
             {module["module_id"] for module in modules},
@@ -326,7 +326,8 @@ class ApiTests(unittest.TestCase):
         report = self.client.get(created["links"]["html_report"])
         self.assertEqual(report.status_code, 200)
         self.assertIn('href="/modules/winch_drum">返回计算页</a>', report.text)
-        self.assertIn(f'href="{created["links"]["pdf"]}">下载 PDF</a>', report.text)
+        self.assertIn(f'href="{created["links"]["pdf"]}"', report.text)
+        self.assertIn("data-pdf-download", report.text)
         for label in ("输入拉力（kN）", "绳索类型", "载荷谱说明", "环境类型", "理论计算值", "项目设定"):
             self.assertIn(label, report.text)
         for value in custom_records.values():
@@ -337,6 +338,30 @@ class ApiTests(unittest.TestCase):
         self.assertIn("代入值", report.text)
         self.assertIn("计算结果", report.text)
         self.assertIn("F_d = F_r × K_s", report.text)
+
+    def test_html_report_loads_the_controlled_pdf_download_asset(self) -> None:
+        created = self.client.post(
+            "/api/v1/modules/winch_drum/calculations",
+            json=valid_payload(),
+        ).json()
+        report = self.client.get(created["links"]["html_report"])
+        self.assertEqual(report.status_code, 200)
+        self.assertIn('href="/static/report.css?v=20260813.1"', report.text)
+        self.assertIn('src="/static/report-download.js?v=20260813.1"', report.text)
+        self.assertIn('id="pdf-download-status"', report.text)
+        self.assertIn('role="status" aria-live="polite" hidden', report.text)
+        self.assertIn(f'data-filename="winch_drum-{created["calculation_id"]}.pdf"', report.text)
+
+        script = self.client.get("/static/report-download.js")
+        self.assertEqual(script.status_code, 200)
+        self.assertIn(
+            script.headers["content-type"].split(";", 1)[0],
+            {"application/javascript", "text/javascript"},
+        )
+        self.assertEqual(script.headers["cache-control"], "public, max-age=86400")
+        self.assertIn('Accept: "application/pdf"', script.text)
+        self.assertIn('"X-Request-ID": requestId', script.text)
+        self.assertIn("Retry-After", script.text)
 
     def test_validation_unknown_module_and_missing_record(self) -> None:
         invalid = valid_payload()

@@ -67,7 +67,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
 
     app = FastAPI(
         title="机械智选 · Mechanical Selection Platform",
-        version="0.5.3",
+        version="0.5.4",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -482,12 +482,33 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         try:
             path, artifact = report_service.get_or_generate(snapshot)
         except ReportServiceError as exc:
-            response = _error(
-                exc.status_code,
-                exc.code,
-                exc.message,
-                request.state.request_id,
-            )
+            if "text/html" in request.headers.get("accept", ""):
+                retry_guidance = (
+                    f"；请在 {exc.retry_after_seconds} 秒后重试。" if exc.retry_after_seconds is not None else "。"
+                )
+                response = templates.TemplateResponse(
+                    request,
+                    "error.html",
+                    {
+                        "status_code": exc.status_code,
+                        "message": "PDF 报告暂时无法下载",
+                        "description": f"{exc.message}（{exc.code}）{retry_guidance}",
+                        "request_id": request.state.request_id,
+                        "primary_href": f"/calculations/{calculation_id}/report",
+                        "primary_label": "返回 HTML 报告",
+                        "secondary_href": request.url.path,
+                        "secondary_label": "重试 PDF 下载",
+                    },
+                    status_code=exc.status_code,
+                )
+            else:
+                response = _error(
+                    exc.status_code,
+                    exc.code,
+                    exc.message,
+                    request.state.request_id,
+                )
+            response.headers["Vary"] = "Accept"
             if exc.retry_after_seconds is not None:
                 response.headers["Retry-After"] = str(exc.retry_after_seconds)
             return response

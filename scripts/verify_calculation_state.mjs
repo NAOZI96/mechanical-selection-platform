@@ -48,7 +48,8 @@ try {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
 
-  await verifyWinchWorkbench(client, baseUrl);
+  const reportUrl = await verifyWinchWorkbench(client, baseUrl);
+  await verifyReportDownload(client, reportUrl);
   await verifyWinchMobileSafety(client, baseUrl);
   await navigate(client, `${baseUrl}/modules/transmission_check`);
   await verifyGenericWorkbench(client, baseUrl);
@@ -467,6 +468,104 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     "winch safe retry did not reuse the logical idempotency key and persisted calculation",
   );
   await cdp.evaluate('window.fetch = window.__realFetch; true');
+  return cdp.evaluate('document.querySelector("#report-link").href');
+}
+
+async function verifyReportDownload(cdp, reportUrl) {
+  await navigate(cdp, reportUrl);
+  await waitFor(cdp, 'Boolean(document.querySelector("#pdf-download") && document.querySelector("#pdf-download-status"))');
+  await cdp.evaluate(`(() => {
+    window.__reportPageUrl = location.href;
+    window.__realReportFetch = window.fetch;
+    window.fetch = (url, options = {}) => String(url).includes("/report.pdf")
+      ? Promise.resolve(new Response(JSON.stringify({
+          error: {
+            code: "REPORT_CAPACITY_LIMIT",
+            message: "fixture report capacity limit",
+            request_id: "pdf-error-body-fixture",
+            details: [],
+          },
+        }), {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": "60",
+            "X-Request-ID": "pdf-error-header-fixture",
+          },
+        }))
+      : window.__realReportFetch(url, options);
+    document.querySelector("#pdf-download").click();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#pdf-download-status").dataset.state === "error"');
+  await assertPage(
+    cdp,
+    `location.href === window.__reportPageUrl
+      && document.querySelector("#pdf-download").textContent === "重试 PDF 下载"
+      && document.querySelector("#pdf-download-status").textContent.includes("fixture report capacity limit")
+      && document.querySelector("#pdf-download-status").textContent.includes("REPORT_CAPACITY_LIMIT")
+      && document.querySelector("#pdf-download-status").textContent.includes("60 秒后重试")
+      && document.querySelector("#pdf-download-status").textContent.includes("pdf-error-body-fixture")
+      && !document.querySelector("#pdf-download-status").textContent.includes("pdf-error-header-fixture")`,
+    "PDF failure navigated away or hid its retry delay and request ID",
+  );
+
+  await cdp.evaluate(`(() => {
+    window.__downloadAudit = {clicks: 0, filename: null, href: null, requestId: null, accept: null, blobType: null, blobSize: 0, revoked: null};
+    window.__realCreateObjectURL = URL.createObjectURL.bind(URL);
+    window.__realRevokeObjectURL = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      window.__downloadAudit.blobType = blob.type;
+      window.__downloadAudit.blobSize = blob.size;
+      return "blob:pdf-download-fixture";
+    };
+    URL.revokeObjectURL = (url) => { window.__downloadAudit.revoked = url; };
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLAnchorElement) || !target.download) return;
+      event.preventDefault();
+      window.__downloadAudit.clicks += 1;
+      window.__downloadAudit.filename = target.download;
+      window.__downloadAudit.href = target.href;
+    }, true);
+    window.fetch = (url, options = {}) => {
+      if (!String(url).includes("/report.pdf")) return window.__realReportFetch(url, options);
+      const headers = new Headers(options.headers || {});
+      window.__downloadAudit.requestId = headers.get("X-Request-ID");
+      window.__downloadAudit.accept = headers.get("Accept");
+      return Promise.resolve(new Response(new Blob(["%PDF-fixture"], {type: "application/pdf"}), {
+        status: 200,
+        headers: {"Content-Type": "application/pdf", "X-Request-ID": "pdf-success-fixture"},
+      }));
+    };
+    document.querySelector("#pdf-download").click();
+    return true;
+  })()`);
+  await waitFor(
+    cdp,
+    'document.querySelector("#pdf-download-status").dataset.state === "success" && window.__downloadAudit.revoked === "blob:pdf-download-fixture"',
+  );
+  await assertPage(
+    cdp,
+    `location.href === window.__reportPageUrl
+      && document.querySelector("#pdf-download").textContent === "再次下载 PDF"
+      && document.querySelector("#pdf-download-status").textContent.includes("pdf-success-fixture")
+      && window.__downloadAudit.clicks === 1
+      && window.__downloadAudit.filename.startsWith("winch_drum-")
+      && window.__downloadAudit.filename.endsWith(".pdf")
+      && window.__downloadAudit.href === "blob:pdf-download-fixture"
+      && window.__downloadAudit.requestId?.length > 0
+      && window.__downloadAudit.accept === "application/pdf"
+      && window.__downloadAudit.blobType === "application/pdf"
+      && window.__downloadAudit.blobSize > 0`,
+    "PDF success did not preserve the report page and initiate the named same-origin download",
+  );
+  await cdp.evaluate(`(() => {
+    window.fetch = window.__realReportFetch;
+    URL.createObjectURL = window.__realCreateObjectURL;
+    URL.revokeObjectURL = window.__realRevokeObjectURL;
+    return true;
+  })()`);
 }
 
 async function verifyWinchMobileSafety(cdp, baseUrl) {
