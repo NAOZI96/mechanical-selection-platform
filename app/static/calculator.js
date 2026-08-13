@@ -11,10 +11,12 @@ const reportLink = document.querySelector("#report-link");
 const emptyStateTitle = emptyState.querySelector("h2");
 const emptyStateMessage = emptyState.querySelector("h2 + p");
 const SESSION_STORAGE_KEY = "winch_drum.calculator.session.v1";
+const CURRENT_CALCULATION_MODEL_VERSION = document.body.dataset.calculationModelVersion || "";
 const CALCULATION_ENDPOINT = "/api/v1/modules/winch_drum/calculations";
 const CALCULATION_TIMEOUT_MS = 20000;
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let resultState = "idle";
+let pendingSubmission = null;
 
 const numericFields = [
   "rated_line_pull_kn", "rope_diameter_mm", "rope_speed_m_per_min",
@@ -86,6 +88,7 @@ const goldenSample = {
 };
 
 function loadGoldenSample() {
+  clearPendingSubmission();
   invalidateCurrentSnapshot();
   form.reset();
   Object.entries(goldenSample).forEach(([name, value]) => {
@@ -100,6 +103,7 @@ function clearCalculatorSession() {
   const confirmed = window.confirm("确认清空当前标签页中的计算参数和最近结果吗？已保存的历史报告不会删除。");
   if (!confirmed) return;
 
+  clearPendingSubmission();
   form.reset();
   clearFieldErrors();
   formErrors.replaceChildren();
@@ -140,10 +144,11 @@ form.addEventListener("submit", async (event) => {
   const previousResultState = resultState;
   const submittedForm = serializeForm();
   const payload = buildPayload();
+  const logicalSubmission = reuseOrCreateSubmission(payload, submittedForm);
   setLoading(true);
   setResultState("loading");
   try {
-    const data = await fetchCalculation(payload);
+    const data = await fetchCalculation(payload, logicalSubmission.idempotencyKey);
     if (!sameJson(serializeForm(), submittedForm) || !winchResponseMatchesRequest(data, payload)) {
       discardMismatchedResponse("返回快照与本次提交不匹配，结果未显示；请重新计算。");
       return;
@@ -151,7 +156,9 @@ form.addEventListener("submit", async (event) => {
     formErrors.hidden = true;
     saveSessionState(data, submittedForm, submittedForm);
     renderSnapshot(data);
+    clearPendingSubmission();
   } catch (error) {
+    if (!error?.retryable) clearPendingSubmission();
     showError(
       error instanceof Error ? error.message : "无法连接计算服务，请确认应用仍在运行。",
       error?.details || [],
@@ -221,11 +228,20 @@ function serializeForm() {
 }
 
 function handleFormMutation() {
+  clearPendingSubmission();
+  clearRetryAction();
   invalidateCurrentSnapshot();
   saveSessionState();
 }
 
+function clearRetryAction() {
+  formErrors.querySelector(".error-retry")?.closest(".error-actions")?.remove();
+  const context = formErrors.querySelector(".error-context");
+  if (context?.textContent.includes("本次逻辑提交保留了幂等键")) context.remove();
+}
+
 function discardMismatchedResponse(message) {
+  clearPendingSubmission();
   invalidateCurrentSnapshot();
   saveSessionState();
   setResultState("dirty");
@@ -239,7 +255,12 @@ function restoreStateAfterFailedRequest(previousState, submittedForm) {
     setResultState("dirty");
     return;
   }
-  setResultState(previousState);
+  if (previousState === "result") {
+    setResultState("result");
+    return;
+  }
+  saveSessionState(null, submittedForm, null);
+  setResultState("dirty");
 }
 
 function winchResponseMatchesRequest(snapshot, payload) {
@@ -284,7 +305,8 @@ function invalidateCurrentSnapshot() {
 function saveSessionState(snapshot = null, formValues = serializeForm(), snapshotForm = null) {
   try {
     const state = {
-      version: 2,
+      version: 3,
+      calculationModelVersion: CURRENT_CALCULATION_MODEL_VERSION,
       form: formValues,
       snapshot,
       snapshotForm,
@@ -300,7 +322,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 2 && state.form && typeof state.form === "object" ? state : null;
+    return [2, 3].includes(state?.version) && state.form && typeof state.form === "object" ? state : null;
   } catch (error) {
     console.warn("无法读取本次访问的计算参数。", error);
     return null;
@@ -319,13 +341,24 @@ function restoreSessionState() {
       field.value = value;
     }
   });
+  const versionMatches = state.version === 3
+    && state.calculationModelVersion === CURRENT_CALCULATION_MODEL_VERSION
+    && state.snapshot?.calculation_model_version === CURRENT_CALCULATION_MODEL_VERSION;
   if (
+    versionMatches
+    &&
     state.snapshot?.module_id === "winch_drum"
     && state.snapshot?.results
     && state.snapshot?.links
     && sameJson(state.form, state.snapshotForm)
   ) {
     renderSnapshot(state.snapshot, {focus: false});
+  } else {
+    reportLink.removeAttribute("href");
+    if (state.snapshot || state.version !== 3 || state.calculationModelVersion !== CURRENT_CALCULATION_MODEL_VERSION) {
+      saveSessionState(null, state.form, null);
+    }
+    setResultState("dirty");
   }
 }
 
@@ -563,9 +596,7 @@ function showError(message, details = [], {requestId = "", retryable = false} = 
     const context = document.createElement("p");
     context.className = "error-context";
     if (retryable) {
-      context.append(
-        "当前页面未收到可用的新快照；网络中断或超时时，服务端完成状态可能未知。请凭请求 ID 核查，重新发起计算可能生成另一份快照。",
-      );
+      context.append("当前页面未收到可用的新快照。本次逻辑提交保留了幂等键，可安全重试；请保留请求 ID 以便核查。");
     }
     if (requestId) {
       if (retryable) context.append(" ");
@@ -582,8 +613,12 @@ function showError(message, details = [], {requestId = "", retryable = false} = 
     const retryButton = document.createElement("button");
     retryButton.type = "button";
     retryButton.className = "button button--secondary error-retry";
-    retryButton.textContent = "重新发起计算";
-    retryButton.addEventListener("click", () => form.requestSubmit());
+    retryButton.textContent = "安全重试本次计算";
+    retryButton.addEventListener("click", () => {
+      if (!pendingSubmission) return;
+      retryButton.disabled = true;
+      form.requestSubmit();
+    });
     actions.append(retryButton);
     formErrors.append(actions);
   }
@@ -608,7 +643,7 @@ function setLoading(loading) {
   calculateButton.textContent = loading ? "正在计算并保存…" : "保存快照并计算";
 }
 
-async function fetchCalculation(payload, timeoutMs = CALCULATION_TIMEOUT_MS) {
+async function fetchCalculation(payload, idempotencyKey, timeoutMs = CALCULATION_TIMEOUT_MS) {
   const controller = new AbortController();
   const clientRequestId = createClientRequestId();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -618,6 +653,7 @@ async function fetchCalculation(payload, timeoutMs = CALCULATION_TIMEOUT_MS) {
       headers: {
         "Content-Type": "application/json",
         ...(clientRequestId ? {"X-Request-ID": clientRequestId} : {}),
+        ...(idempotencyKey ? {"Idempotency-Key": idempotencyKey} : {}),
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
@@ -696,7 +732,36 @@ function isRetryableHttpStatus(status) {
 }
 
 function createClientRequestId() {
-  return typeof window.crypto?.randomUUID === "function" ? window.crypto.randomUUID() : "";
+  return createOpaqueId("request");
+}
+
+function reuseOrCreateSubmission(payload, submittedForm) {
+  if (
+    pendingSubmission
+    && sameCanonicalJson(pendingSubmission.payload, payload)
+    && sameJson(pendingSubmission.form, submittedForm)
+  ) {
+    return pendingSubmission;
+  }
+  pendingSubmission = {
+    idempotencyKey: createOpaqueId("winch"),
+    payload: canonicalJson(payload),
+    form: submittedForm,
+  };
+  return pendingSubmission;
+}
+
+function clearPendingSubmission() {
+  pendingSubmission = null;
+}
+
+function createOpaqueId(prefix) {
+  if (typeof window.crypto?.randomUUID === "function") return `${prefix}-${window.crypto.randomUUID()}`;
+  if (typeof window.crypto?.getRandomValues === "function") {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return `${prefix}-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  throw new Error("当前浏览器无法生成安全请求标识，请升级浏览器后重试。");
 }
 
 function sameJson(left, right) {

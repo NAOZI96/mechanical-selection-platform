@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.5.2
+文档版本：0.5.3
 API 版本：`v1`  
 已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
@@ -10,7 +10,8 @@ API 版本：`v1`
 - 所有工程字段使用明确带单位的名称。请求采用显示单位字段；响应同时提供原始输入、SI 输入和带单位结果。
 - 数值只接受 JSON number，不接受数值字符串、NaN 或 Infinity。
 - 计算成功状态：`completed` 或 `completed_with_warnings`；字段可部分不可计算时，用 `null + classification=review_required`，不得伪造 0。
-- 相同输入不保证返回相同 calculation ID，但在相同 `calculation_model_version` 下应有相同规范化结果。
+- 未提供 `Idempotency-Key` 时，相同输入不保证返回相同 calculation ID；在相同 `calculation_model_version` 下仍应有相同规范化结果。
+- `Idempotency-Key` 是可选的 1～128 字符 URL-safe token，只允许 ASCII 字符 `[A-Za-z0-9._~-]`；空值、超长值或其他字符由请求校验返回 `422`。作用域固定为 `(module_id, idempotency_key)`，不能跨模块共享占位。
 - 错误结构统一，HTTP 状态码不混入工程警告。
 - `available=true` 只表示模块软件可进入；工程发布状态以 `release_status` 为准。当前 `winch_drum=engineering_review`，其余八模块均为 `internal_testing`。
 
@@ -19,7 +20,7 @@ API 版本：`v1`
 ### 2.1 健康检查
 
 - `GET /health/live`：进程存活，不访问重资源。
-- `GET /health/ready`：注册表非空；SQLite `001`～`005` 台账完整，且实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 一致，并可完成回滚式主库写探针；固定 PDF 字体可用，报告临时目录可完成写入/删除；持久化用量低于新计算停止阈值且磁盘保留最小余量。该端点不执行 `PRAGMA quick_check`、工程计算或 PDF 试渲染；完整 `quick_check` 在启动和受控迁移检查中执行。
+- `GET /health/ready`：注册表非空；SQLite `001`～`006` 台账完整，且实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 一致，并可完成回滚式主库写探针；固定 PDF 字体可用，报告临时目录可完成写入/删除；持久化用量低于新计算停止阈值且磁盘保留最小余量。该端点不执行 `PRAGMA quick_check`、工程计算或 PDF 试渲染；完整 `quick_check` 在启动和受控迁移检查中执行。
 
 ### 2.1A Web 页面
 
@@ -62,6 +63,15 @@ API 版本：`v1`
 `POST /api/v1/modules/{module_id}/calculations`
 
 九个已注册模块都使用该通用路径。以下仍以 `winch_drum` 请求体说明首发模块的具体字段：
+
+可选幂等请求头：
+
+- 首次收到有效 `Idempotency-Key` 时创建快照，返回 `201 Created` 与 `Idempotency-Replayed: false`。
+- 同一 `(module_id, key)` 再次提交相同规范化请求时不重复写入；常规顺序重放在计算前命中原记录，并返回原快照、`201 Created` 与 `Idempotency-Replayed: true`。并发首提竞争可能各自在唯一约束前完成确定性内存计算，但最终只能持久化一份快照，其余请求原子读取并返回该快照。
+- 同一 `(module_id, key)` 提交不同规范化请求时返回 `409 IDEMPOTENCY_KEY_REUSED`，不得覆盖或返回旧快照作为新请求结果。
+- 不提供该请求头时不启用去重；每次成功调用都主动创建新的 calculation ID，返回 `201 Created` 与 `Idempotency-Replayed: false`。
+
+幂等键只控制计算快照创建，不改变计算模型、工程结论、snapshot schema v4、report context schema v4 或报告缓存键。
 
 请求体：
 
@@ -213,7 +223,7 @@ MVP 不提供任意目录文件名，不接受模板路径，不把 calculation 
 | 400 | JSON 格式或请求语义无法解析。 |
 | 411 | 带请求体的方法缺少 `Content-Length`。 |
 | 404 | 模块、计算或报告不存在。 |
-| 409 | `LEGACY_RELEASE_STATUS_MISSING`：旧快照没有可验证缓存 PDF，且缺少生成新版 PDF 所需的计算时发布状态。 |
+| 409 | `IDEMPOTENCY_KEY_REUSED`：同一模块内的幂等键已绑定到不同规范化请求；或 `LEGACY_RELEASE_STATUS_MISSING`：旧快照没有可验证缓存 PDF，且缺少生成新版 PDF 所需的计算时发布状态。 |
 | 413 | 请求体超过限制。 |
 | 422 | 字段或跨字段校验失败。 |
 | 429 | 频率/PDF 并发限制。 |
@@ -277,6 +287,7 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `calculation_model_version` 标识数值模型、输入语义、默认值和警告规则。
 - `snapshot_schema_version=4` 与报告上下文 `schema_version=4` 表示已冻结计算时发布状态；版本升级不触发旧快照重算。
 - 当前报告模板版本为 `winch_drum.report.1.2.1`，八个扩展模块分别为对应的 `*.report.1.0.1`；模板版本参与 PDF artifact 缓存键。
+- Platform 0.5.3 的幂等创建是向后兼容的可选 HTTP 能力；迁移 `006` 只增加幂等持久化元数据和唯一约束，计算/报告模型版本及两个 schema v4 均保持不变。
 - 增加可选字段可保持 API v1；改变字段语义、公式或默认值必须更新计算模型版本，并保留读取旧快照能力。
 - 八个扩展模块均使用相同通用端点；每个模块的专属输入/结果由其注册 Pydantic schema 决定。需求、公式和证据见 [`MODULE_REQUIREMENTS.md`](MODULE_REQUIREMENTS.md)、[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md) 和 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。
 
@@ -289,4 +300,5 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - HTML/PDF 与 GET calculation 的关键值源自同一快照。
 - `/docs` 和 `/redoc` 在严格 CSP 下可读且没有内联/外部脚本；安全头与三类缓存策略逐路由验证。
 - 新快照保存计算时发布状态；`legacy_unknown` 的有效缓存 PDF 可读，无有效缓存时稳定返回 `409` 且不启动渲染器。
+- 验证首次幂等创建返回 `Idempotency-Replayed: false`，同键同规范请求重放同一快照并返回 `true`，同键异请求返回 `409 IDEMPOTENCY_KEY_REUSED`，不同模块可独立使用同一键，无键请求继续产生不同 calculation ID。
 - 模块发现精确返回 9 个注册 ID 及上述发布状态；每个模块的页面、schema、POST、GET、HTML 和 PDF 路径均有本地回归。

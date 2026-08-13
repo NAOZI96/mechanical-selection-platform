@@ -3,50 +3,101 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .database import connect
 
 
+@dataclass(frozen=True)
+class IdempotentCreateResult:
+    snapshot: dict[str, Any]
+    replayed: bool
+    fingerprint_matches: bool = True
+
+
 class CalculationRepository:
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
 
-    def create(self, snapshot: dict[str, Any], input_hash: str, request_id: str) -> None:
+    def create(
+        self,
+        snapshot: dict[str, Any],
+        input_hash: str,
+        request_id: str,
+        *,
+        idempotency_key: str | None = None,
+        request_fingerprint: str | None = None,
+    ) -> IdempotentCreateResult:
         with connect(self._database_path) as connection:
-            connection.execute(
-                """
-                INSERT INTO calculations (
-                    id, module_id, module_version, calculation_model_version,
-                    report_template_version, status, release_status,
-                    input_original_json, input_si_json, assumptions_json, results_json,
-                    steps_json, warnings_json, disclaimer_json, snapshot_schema_version,
-                    report_context_json, input_hash, created_at, request_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    snapshot["calculation_id"],
-                    snapshot["module_id"],
-                    snapshot["module_version"],
-                    snapshot["calculation_model_version"],
-                    snapshot["report_template_version"],
-                    snapshot["status"],
-                    snapshot["release_status"],
-                    _json(snapshot["input_original"]),
-                    _json(snapshot["input_si"]),
-                    _json(snapshot["assumptions"]),
-                    _json(snapshot["results"]),
-                    _json(snapshot["steps"]),
-                    _json(snapshot["warnings"]),
-                    _json(snapshot["disclaimer"]),
-                    snapshot["snapshot_schema_version"],
-                    _json(snapshot["report_context"]),
-                    input_hash,
-                    snapshot["created_at"],
-                    request_id,
-                ),
-            )
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO calculations (
+                        id, module_id, module_version, calculation_model_version,
+                        report_template_version, status, release_status,
+                        input_original_json, input_si_json, assumptions_json, results_json,
+                        steps_json, warnings_json, disclaimer_json, snapshot_schema_version,
+                        report_context_json, input_hash, created_at, request_id,
+                        idempotency_key, request_fingerprint
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot["calculation_id"],
+                        snapshot["module_id"],
+                        snapshot["module_version"],
+                        snapshot["calculation_model_version"],
+                        snapshot["report_template_version"],
+                        snapshot["status"],
+                        snapshot["release_status"],
+                        _json(snapshot["input_original"]),
+                        _json(snapshot["input_si"]),
+                        _json(snapshot["assumptions"]),
+                        _json(snapshot["results"]),
+                        _json(snapshot["steps"]),
+                        _json(snapshot["warnings"]),
+                        _json(snapshot["disclaimer"]),
+                        snapshot["snapshot_schema_version"],
+                        _json(snapshot["report_context"]),
+                        input_hash,
+                        snapshot["created_at"],
+                        request_id,
+                        idempotency_key,
+                        request_fingerprint,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                if idempotency_key is None:
+                    raise
+                row = self._get_by_idempotency_key(connection, snapshot["module_id"], idempotency_key)
+                if row is None:
+                    raise
+                return IdempotentCreateResult(
+                    snapshot=_snapshot_from_row(row),
+                    replayed=True,
+                    fingerprint_matches=row["request_fingerprint"] == request_fingerprint,
+                )
+        return IdempotentCreateResult(snapshot=snapshot, replayed=False)
+
+    def get_by_idempotency_key(self, module_id: str, idempotency_key: str) -> tuple[dict[str, Any], str] | None:
+        with connect(self._database_path) as connection:
+            row = self._get_by_idempotency_key(connection, module_id, idempotency_key)
+        if row is None:
+            return None
+        return _snapshot_from_row(row), str(row["request_fingerprint"])
+
+    @staticmethod
+    def _get_by_idempotency_key(
+        connection: sqlite3.Connection,
+        module_id: str,
+        idempotency_key: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT * FROM calculations WHERE module_id = ? AND idempotency_key = ?",
+            (module_id, idempotency_key),
+        ).fetchone()
 
     def get(self, calculation_id: str) -> dict[str, Any] | None:
         with connect(self._database_path) as connection:
@@ -56,26 +107,7 @@ class CalculationRepository:
             ).fetchone()
         if row is None:
             return None
-        return {
-            "calculation_id": row["id"],
-            "module_id": row["module_id"],
-            "module_version": row["module_version"],
-            "calculation_model_version": row["calculation_model_version"],
-            "report_template_version": row["report_template_version"],
-            "release_status": row["release_status"] or "legacy_unknown",
-            "status": row["status"],
-            "created_at": row["created_at"],
-            "input_original": json.loads(row["input_original_json"]),
-            "input_si": json.loads(row["input_si_json"]),
-            "assumptions": json.loads(row["assumptions_json"]),
-            "results": json.loads(row["results_json"]),
-            "steps": json.loads(row["steps_json"]),
-            "warnings": json.loads(row["warnings_json"]),
-            "disclaimer": json.loads(row["disclaimer_json"]),
-            "snapshot_schema_version": row["snapshot_schema_version"],
-            "report_context": (None if row["report_context_json"] is None else json.loads(row["report_context_json"])),
-            "links": _links(row["id"]),
-        }
+        return _snapshot_from_row(row)
 
     def get_report_artifact(
         self,
@@ -169,6 +201,29 @@ class CalculationRepository:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+
+
+def _snapshot_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "calculation_id": row["id"],
+        "module_id": row["module_id"],
+        "module_version": row["module_version"],
+        "calculation_model_version": row["calculation_model_version"],
+        "report_template_version": row["report_template_version"],
+        "release_status": row["release_status"] or "legacy_unknown",
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "input_original": json.loads(row["input_original_json"]),
+        "input_si": json.loads(row["input_si_json"]),
+        "assumptions": json.loads(row["assumptions_json"]),
+        "results": json.loads(row["results_json"]),
+        "steps": json.loads(row["steps_json"]),
+        "warnings": json.loads(row["warnings_json"]),
+        "disclaimer": json.loads(row["disclaimer_json"]),
+        "snapshot_schema_version": row["snapshot_schema_version"],
+        "report_context": None if row["report_context_json"] is None else json.loads(row["report_context_json"]),
+        "links": _links(row["id"]),
+    }
 
 
 def _links(calculation_id: str) -> dict[str, str]:

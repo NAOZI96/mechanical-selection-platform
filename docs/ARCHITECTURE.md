@@ -1,6 +1,6 @@
 # 系统架构设计
 
-文档版本：0.5.2
+文档版本：0.5.3
 适用阶段：Phase 8 九模块产品候选版、发布状态数据治理与工程发布门禁
 
 ## 1. 架构目标与约束
@@ -14,7 +14,7 @@
   └─ HTTP/HTML/JSON
       └─ FastAPI 单 worker
           ├─ Web 层：可筛选平台主页、统一模块页面、CSP-safe 文档、静态资源、安全/缓存头、错误页
-          ├─ API 层：模块发现、校验、计算、报告查询
+          ├─ API 层：模块发现、校验、幂等计算创建、报告查询
           ├─ 应用服务：SI 规范化、计算编排、快照保存、报告编排
           ├─ 模块注册表
           │   ├─ winch_drum（engineering_review）
@@ -69,7 +69,7 @@ data/
 
 `/docs` 与 `/redoc` 由同一个 Jinja2 模板服务端渲染，端点清单来自 `app.openapi()`；页面无需内联或第三方脚本，可在严格 CSP 下直接阅读。模块页面仍使用 Jinja2 外壳和同源原生 JavaScript 调用统一 API；公式、SI 换算、工程校验和警告只存在于后端模块。
 
-计算事务物化 snapshot schema v4 和 report context schema v4，并保存计算当时的工程发布状态；HTML 与 PDF 只消费该快照/DTO。PDF 由受超时控制的单独 Python 子进程生成，完成后原子写入 `reports/`，SQLite 只保存状态、相对路径、哈希和大小。当前模板版本为 `winch_drum.report.1.2.1` 及八模块各自的 `*.report.1.0.1`。
+计算事务物化 snapshot schema v4 和 report context schema v4，并保存计算当时的工程发布状态；HTML 与 PDF 只消费该快照/DTO。Platform 0.5.3 可在同一事务中保存可选幂等键及规范化请求指纹，以 `(module_id, idempotency_key)` 部分唯一索引防止重复落库：同键同指纹读取原快照，同键异指纹返回冲突，无键路径仍主动新建。该能力不进入工程快照或报告 DTO，因此计算模型、两个 schema v4 和报告模板版本不变。PDF 由受超时控制的单独 Python 子进程生成，完成后原子写入 `reports/`，SQLite 只保存状态、相对路径、哈希和大小。当前模板版本为 `winch_drum.report.1.2.1` 及八模块各自的 `*.report.1.0.1`。
 
 ## 4. 模块注册契约
 
@@ -128,7 +128,7 @@ data/
 - 单 Web worker，避免多进程内存复制与 SQLite 写争用。
 - 启用 WAL、foreign keys、busy timeout；事务短小，计算和 PDF 渲染不放在事务内。
 - 每请求独立连接/会话；失败回滚。
-- 有序迁移当前为 `001`～`005`；每份 SQL 与对应 `schema_migrations` 登记在同一个显式 SQLite 事务内，任一语句或登记失败均整体回滚。`005_calculation_release_status.sql` 只增加允许为空的受约束 `release_status` 列，以保留迁移前记录“当时状态未知”的事实。生产环境先在线备份再迁移；启动除核对迁移清单外，还把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对并执行 `quick_check`。
+- 有序迁移当前为 `001`～`006`；每份 SQL 与对应 `schema_migrations` 登记在同一个显式 SQLite 事务内，任一语句或登记失败均整体回滚。`005_calculation_release_status.sql` 增加允许为空的受约束 `release_status` 列，以保留迁移前记录“当时状态未知”的事实；`006_calculation_idempotency.sql` 增加可空幂等键、请求指纹和模块内部分唯一索引。生产环境先在线备份再迁移；启动除核对迁移清单外，还把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对并执行 `quick_check`。
 - PDF 通过进程内 `BoundedSemaphore(1)` 限制并发；额外请求立即返回受控 `429`。单 worker 同步等待受 30 s 超时保护的渲染子进程，失败不会删除计算快照。
 - 不将大型 PDF 二进制写入 SQLite，只保存相对路径、哈希、大小和状态。
 - 有效遗留缓存 PDF 可在完整性校验后继续下载并带 `legacy_unknown` 响应标记；旧快照没有有效缓存时返回 `409 LEGACY_RELEASE_STATUS_MISSING`，不进入渲染子进程。
@@ -145,8 +145,8 @@ data/
 
 ## 9. 可观测性
 
-- 结构化日志字段：request_id、module_id、model_version、duration_ms、status、warning_count；不记录完整用户输入。
-- 指标可先从日志获得：请求量、错误率、计算延迟、PDF 延迟、数据库大小、报告目录大小和磁盘余量。
+- 正常计算完成时输出结构化 INFO 日志字段：`request_id`、`module_id`、`model_version`、`duration_ms`、`status`、`warning_count`、`idempotency_replayed`；不记录完整用户输入或幂等键原文。异常和数据库不可用日志继续携带请求 ID 与路径。
+- 当前可从完成/错误日志获得计算请求量、结果状态、警告数量、幂等重放量、错误率和计算延迟；PDF 延迟、数据库/报告大小与磁盘余量仍须从对应运行时采样取得，不把关闭的 Uvicorn access log 当作指标来源。
 - `/health/live` 只确认进程；`/health/ready` 检查注册表、SQLite 迁移与实际 schema、回滚式写探针、固定字体、报告临时目录写删、新快照容量阈值及相关文件系统余量。它不重复启动时的 `PRAGMA quick_check`，也不替代备份恢复、计算或报告冒烟。
 
 ## 10. 资源预算
@@ -165,5 +165,6 @@ data/
 - SQLite 备份、恢复、WAL 清理和磁盘不足故障均有演练记录。
 - `/docs` 与 `/redoc` 在严格 CSP 下无需外部/内联脚本即可阅读；安全头和三类缓存策略有逐路由回归。
 - snapshot/report context schema v4 保存计算时发布状态；有效遗留缓存 PDF 可读，无有效缓存时稳定返回 409 且不重算。
+- 可选 `Idempotency-Key` 在模块内防止相同规范请求重复落库，异请求复用键返回 409；未提供键时仍生成新的 calculation ID。
 
-当前候选版包含 Phase 8 新增的可空迁移 `005_calculation_release_status.sql`，但没有新增常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块因待确认候选比较门禁升级为各自 `*.calc.1.0.1`。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005` 与当前九模块版本的目标机复验。
+当前 Platform 0.5.3 候选版包含 Phase 8 的 `005_calculation_release_status.sql` 以及新的 `006_calculation_idempotency.sql`，但没有新增常驻服务，也没有改变工程公式或 SI 口径；来源校验边界硬化已将 `winch_drum` 升为 `winch_drum.calc.1.2.1`，八个扩展模块因待确认候选比较门禁升级为各自 `*.calc.1.0.1`。该候选版尚未执行远程部署；既有 Phase 4 资源与恢复数据只证明当时采用迁移 `001`～`004` 的 `winch_drum` 镜像，不能替代迁移 `005`、`006` 与当前九模块版本的目标机复验。

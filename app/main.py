@@ -6,15 +6,16 @@ import logging
 import sqlite3
 from contextlib import asynccontextmanager
 from html import escape
-from typing import Any
+from time import perf_counter
+from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import PROJECT_ROOT, Settings
@@ -25,7 +26,7 @@ from app.persistence.repository import CalculationRepository
 from app.reporting.context import build_report_context
 from app.reporting.models import ReportContext
 from app.reporting.service import PdfReportService, ReportServiceError
-from app.services.calculations import CalculationService
+from app.services.calculations import CalculationService, IdempotencyKeyReusedError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +41,15 @@ _SQLITE_UNAVAILABLE_PRIMARY_CODES = {
     sqlite3.SQLITE_PROTOCOL,
     sqlite3.SQLITE_NOTADB,
 }
+
+
+class CalculationRequest(BaseModel):
+    """Strict generic envelope; module-specific input remains registry-driven."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: dict[str, Any]
+    assumption_sources: dict[str, Any] | None = None
 
 
 def create_app(settings: Settings | None = None, registry: ModuleRegistry | None = None) -> FastAPI:
@@ -57,7 +67,7 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
 
     app = FastAPI(
         title="机械智选 · Mechanical Selection Platform",
-        version="0.5.2",
+        version="0.5.3",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -361,24 +371,25 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
         }
 
     @app.post("/api/v1/modules/{module_id}/calculations", status_code=201)
-    def create_calculation(module_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    def create_calculation(
+        module_id: str,
+        payload: CalculationRequest,
+        request: Request,
+        response: Response,
+        idempotency_key: Annotated[
+            str | None,
+            Header(
+                alias="Idempotency-Key",
+                min_length=1,
+                max_length=128,
+                pattern=r"^[A-Za-z0-9._~-]+$",
+            ),
+        ] = None,
+    ) -> Any:
+        started_at = perf_counter()
         module_or_404(module_id)
-        if not app_settings.allows_calculation_write():
-            response = _error(
-                503,
-                "PERSISTENT_CAPACITY_LIMIT",
-                "持久化空间已达到计算停止阈值，未保存本次计算；请联系维护人员清理空间",
-                request.state.request_id,
-            )
-            response.headers["Retry-After"] = "60"
-            return response
-        raw_input = payload.get("input")
-        if not isinstance(raw_input, dict):
-            return _validation_error(
-                request.state.request_id,
-                [{"loc": ("body", "input"), "msg": "必须提供 input 对象", "type": "missing"}],
-            )
-        if "assumption_sources" in payload and "assumption_sources" in raw_input:
+        raw_input = payload.input
+        if "assumption_sources" in payload.model_fields_set and "assumption_sources" in raw_input:
             return _validation_error(
                 request.state.request_id,
                 [
@@ -389,10 +400,53 @@ def create_app(settings: Settings | None = None, registry: ModuleRegistry | None
                     }
                 ],
             )
-        if "assumption_sources" in payload:
-            raw_input = {**raw_input, "assumption_sources": payload["assumption_sources"]}
+        if "assumption_sources" in payload.model_fields_set:
+            raw_input = {**raw_input, "assumption_sources": payload.assumption_sources}
         try:
-            return service.create(module_id, raw_input, request.state.request_id)
+            replayed_snapshot = (
+                service.replay(module_id, raw_input, idempotency_key=idempotency_key)
+                if idempotency_key is not None
+                else None
+            )
+            if replayed_snapshot is not None:
+                response.headers["Idempotency-Replayed"] = "true"
+                _log_calculation_success(
+                    replayed_snapshot,
+                    request_id=request.state.request_id,
+                    started_at=started_at,
+                    idempotency_replayed=True,
+                )
+                return replayed_snapshot
+            if not app_settings.allows_calculation_write():
+                capacity_response = _error(
+                    503,
+                    "PERSISTENT_CAPACITY_LIMIT",
+                    "持久化空间已达到计算停止阈值，未保存本次计算；请联系维护人员清理空间",
+                    request.state.request_id,
+                )
+                capacity_response.headers["Retry-After"] = "60"
+                return capacity_response
+            snapshot, replayed = service.create_idempotent(
+                module_id,
+                raw_input,
+                request.state.request_id,
+                idempotency_key=idempotency_key,
+            )
+            response.headers["Idempotency-Replayed"] = str(replayed).lower()
+            _log_calculation_success(
+                snapshot,
+                request_id=request.state.request_id,
+                started_at=started_at,
+                idempotency_replayed=replayed,
+            )
+            return snapshot
+        except IdempotencyKeyReusedError:
+            return _error(
+                409,
+                "IDEMPOTENCY_KEY_REUSED",
+                "该 Idempotency-Key 已用于同一模块的其他规范化请求",
+                request.state.request_id,
+            )
         except ValidationError as exc:
             return _validation_error(request.state.request_id, exc.errors())
 
@@ -461,6 +515,26 @@ def _error(status_code: int, code: str, message: str, request_id: str) -> JSONRe
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": message, "request_id": request_id, "details": []}},
+    )
+
+
+def _log_calculation_success(
+    snapshot: dict[str, Any],
+    *,
+    request_id: str,
+    started_at: float,
+    idempotency_replayed: bool,
+) -> None:
+    LOGGER.info(
+        "Calculation completed request_id=%s module_id=%s model_version=%s duration_ms=%.3f "
+        "status=%s warning_count=%d idempotency_replayed=%s",
+        request_id,
+        snapshot["module_id"],
+        snapshot["calculation_model_version"],
+        (perf_counter() - started_at) * 1000.0,
+        snapshot["status"],
+        len(snapshot["warnings"]),
+        str(idempotency_replayed).lower(),
     )
 
 

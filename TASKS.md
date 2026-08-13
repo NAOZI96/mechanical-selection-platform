@@ -44,6 +44,7 @@
 - [x] 建立 SQLite 迁移、repository、WAL/foreign key/busy timeout 和快照 schema。
 - [x] 实现模块列表、schema、统一计算、快照读取和健康端点。
 - [x] 配置 Ruff 格式化/静态检查、测试、固定直接依赖版本和 GitHub Actions CI。
+- [x] CI 使用 Node 24 运行时的 `actions/checkout@v6`、`setup-python@v6`、`setup-node@v6` 和只读仓库权限，并在隔离临时库执行真实浏览器回归、解析 Compose、构建候选镜像。
 
 ### Phase 1A：`winch_drum` 纯计算核心（本次范围）
 
@@ -157,7 +158,7 @@
 - [x] 软件可运行状态与工程发布状态分离：`winch_drum=engineering_review`，八个扩展模块均为 `internal_testing`。
 - [x] 形成八模块计算规格和公式追溯入口：[`docs/EXPANDED_MODULES_CALCULATION_SPEC.md`](docs/EXPANDED_MODULES_CALCULATION_SPEC.md)、[`docs/EXPANDED_FORMULA_TEST_MATRIX.md`](docs/EXPANDED_FORMULA_TEST_MATRIX.md)。
 - [x] 将八模块的候选/许用数据来源门禁统一到各自 `*.calc.1.0.1`：来源为 `pending_confirmation` 时保留原始输入与引用，但利用率、余量和通过/失败结论固定为 `null/review_required`，且快照/HTML/PDF 不伪造已执行的候选比较步骤或可采用结论。
-- [x] 当前九模块候选版 143 项本地回归全部通过，覆盖单元、边界、派生数值安全、公式库存防漂移、产品页面、API、HTML/PDF、受控 500 错误页、schema v4、遗留数据和持久化契约。
+- [x] 当时九模块候选版 143 项本地回归全部通过，覆盖单元、边界、派生数值安全、公式库存防漂移、产品页面、API、HTML/PDF、受控 500 错误页、schema v4、遗留数据和持久化契约。
 - [x] 八模块继续复用通用 JSON 快照和报告表，没有增加模块专属列或常驻服务，也未执行远程部署；计算时发布状态持久化由后续 Phase 8 的通用迁移 `005` 完成。
 - [ ] 如需模块间数据传递，另行设计显式版本化 DTO 和用户确认页面；当前模块之间不隐式读取彼此结果。
 
@@ -187,14 +188,17 @@
 - [x] 单份迁移 SQL 与版本登记原子提交；启动把实际 table/index/trigger 完整签名与内置迁移生成的权威 schema 比对并执行 `quick_check`，同名空触发器、字符串字面量漂移及额外/伪装 UNIQUE 索引均不能绕过门禁。`/health/ready` 以可回滚数据库写探针、报告目录写删探针及 95% 容量/磁盘余量门禁判断是否还能接收新计算，但不执行工程计算或 PDF 试渲染。
 - [x] 共享 5 GiB 持久化预算同时统计 SQLite、WAL/SHM 与报告：85% 停止新 PDF，95% 或可用空间不足停止新增快照并返回受控 503，已有快照/报告读取保持可用。
 - [x] 绞车工作台补齐 20 秒超时、Content-Type/空/无效 JSON/HTTP 错误解析与请求 ID；超时/断网按“服务端结果未知、重新发起可能产生另一快照”提示；390/430 px 保留安全范围说明和工程发布状态。
-- [ ] 在目标主机在线备份后受控应用迁移 `005`，再完成九模块计算、HTML/PDF、旧缓存、资源、恢复和既有服务影响复验。
+- [x] Platform 0.5.3 新增迁移 `006_calculation_idempotency.sql` 和可选 `Idempotency-Key`：作用域为 `(module_id, key)`；同键同规范请求返回同一快照及 `201`/`Idempotency-Replayed: true`，同键异请求返回 `409 IDEMPOTENCY_KEY_REUSED`，无键请求仍每次新建。
+- [x] 正常计算完成日志记录 `request_id/module_id/model_version/duration_ms/status/warning_count/idempotency_replayed`，不记录完整输入。
+- [x] 幂等能力未改变计算公式、SI 口径、计算/报告模型版本、snapshot schema v4 或 report context schema v4。
+- [ ] 在目标主机在线备份后受控应用迁移至 `006`，再完成九模块计算、幂等重放/冲突、HTML/PDF、旧缓存、资源、恢复与既有服务影响复验。
 
 ### Phase 8 发布门禁
 
-- [x] 当前候选版 143 项全量单元、边界、公式回归、API、PDF、迁移、兼容、受控错误页与安全头测试通过。
+- [x] 当前 Platform 0.5.3 候选版 154 项全量单元、边界、公式回归、API、PDF、迁移、幂等顺序/并发/数据库约束、兼容、受控错误页与安全头测试通过；隔离真实 Chrome 状态回归通过。
 - [ ] 生产 `DESIGN_AGENT_AUTO_MIGRATE=false`；不得在未备份的目标库上通过临时开启自动迁移绕过门禁。
 - [ ] `legacy_unknown` 只表示旧记录缺少当时发布状态，必须按内部测试边界展示，不得推断为当时已评审或已放行。
-- [ ] Phase 4 历史验收只证明当时 `001`～`004` 的首发模块镜像；迁移 `005` 和当前候选版仍需独立目标机证据。
+- [ ] Phase 4 历史验收只证明当时 `001`～`004` 的首发模块镜像；迁移 `005`、`006` 和当前 Platform 0.5.3 候选版仍需独立目标机证据。
 
 ## 缺陷优先级
 

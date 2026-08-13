@@ -161,7 +161,10 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     window.__releaseCalculation();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#results").dataset.state !== "loading" && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#results").dataset.state === "dirty"
@@ -183,7 +186,10 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     wrongPayload.assumption_sources.approved_core_ratio = "user_input";
     const wrongResponse = await window.fetch("/api/v1/modules/winch_drum/calculations", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "fixture-winch-" + crypto.randomUUID(),
+      },
       body: JSON.stringify(wrongPayload),
     });
     if (!wrongResponse.ok) throw new Error("failed to create mismatched winch fixture");
@@ -198,7 +204,10 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     document.querySelector("#winch-form").requestSubmit();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#results").dataset.state !== "loading" && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#results").dataset.state === "dirty"
@@ -238,7 +247,10 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     window.__releaseCalculationFailure();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#results").dataset.state !== "loading" && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#results").dataset.state === "dirty"
@@ -354,10 +366,10 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
   await assertPage(
     cdp,
     `document.querySelector("#form-errors").textContent.includes("请求超时")
-      && document.querySelector("#form-errors").textContent.includes("服务端完成状态可能未知")
-      && document.querySelector("#form-errors").textContent.includes("重新发起计算可能生成另一份快照")
+      && document.querySelector("#form-errors").textContent.includes("本次逻辑提交保留了幂等键")
+      && document.querySelector("#form-errors").textContent.includes("可安全重试")
       && document.querySelector("#form-errors .error-context code")?.textContent.length > 0
-      && document.querySelector("#form-errors .error-retry")?.textContent === "重新发起计算"
+      && document.querySelector("#form-errors .error-retry")?.textContent === "安全重试本次计算"
       && document.querySelector("#results").dataset.state === "dirty"
       && Array.from(document.querySelector("#winch-form").elements).every((control) => !control.disabled)
       && JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1")).snapshot === null`,
@@ -368,6 +380,93 @@ async function verifyWinchWorkbench(cdp, baseUrl) {
     window.setTimeout = window.__realSetTimeout;
     return true;
   })()`);
+  await cdp.evaluate(`(() => {
+    const field = document.querySelector("#winch-form").elements.rated_line_pull_kn;
+    field.value = "103";
+    field.dispatchEvent(new Event("input", {bubbles: true}));
+    return true;
+  })()`);
+  await assertPage(
+    cdp,
+    `!document.querySelector("#form-errors .error-retry")
+      && !document.querySelector("#form-errors").textContent.includes("本次逻辑提交保留了幂等键")`,
+    "winch retained a stale safe-retry action after the form changed",
+  );
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state === "result"');
+  await cdp.evaluate(`(() => {
+    const key = "winch_drum.calculator.session.v1";
+    const state = JSON.parse(sessionStorage.getItem(key));
+    state.version = 2;
+    delete state.calculationModelVersion;
+    sessionStorage.setItem(key, JSON.stringify(state));
+    return true;
+  })()`);
+  await navigate(cdp, `${baseUrl}/modules/winch_drum`);
+  await assertPage(
+    cdp,
+    `(() => {
+      const state = JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1"));
+      return document.querySelector("#results").dataset.state === "dirty"
+        && document.querySelector("#result-content").hidden
+        && !document.querySelector("#report-link").hasAttribute("href")
+        && state.version === 3
+        && state.calculationModelVersion === document.body.dataset.calculationModelVersion
+        && state.snapshot === null;
+    })()`,
+    "winch restored a v2 snapshot instead of retaining only its inputs as dirty state",
+  );
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#load-golden-sample").click();
+    window.__realFetch = window.fetch;
+    window.__idempotencyAudit = {keys: [], requestIds: [], calculationIds: [], statuses: [], replayed: []};
+    window.fetch = async (url, options = {}) => {
+      if (!String(url).includes("/calculations")) return window.__realFetch(url, options);
+      const headers = new Headers(options.headers || {});
+      window.__idempotencyAudit.keys.push(headers.get("Idempotency-Key"));
+      window.__idempotencyAudit.requestIds.push(headers.get("X-Request-ID"));
+      const response = await window.__realFetch(url, options);
+      const data = await response.clone().json();
+      window.__idempotencyAudit.calculationIds.push(data.calculation_id || null);
+      window.__idempotencyAudit.statuses.push(response.status);
+      window.__idempotencyAudit.replayed.push(response.headers.get("Idempotency-Replayed"));
+      if (window.__idempotencyAudit.keys.length === 1) {
+        throw new TypeError("simulated response loss after persistence");
+      }
+      return response;
+    };
+    document.querySelector("#winch-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#form-errors .error-retry")?.textContent === "安全重试本次计算"');
+  await cdp.evaluate('document.querySelector("#form-errors .error-retry").click(); true');
+  await waitFor(cdp, 'document.querySelector("#results").dataset.state === "result"');
+  await assertPage(
+    cdp,
+    `(() => {
+      const audit = window.__idempotencyAudit;
+      const state = JSON.parse(sessionStorage.getItem("winch_drum.calculator.session.v1"));
+      return audit.keys.length === 2
+        && audit.keys[0]?.length > 0
+        && audit.keys[0] === audit.keys[1]
+        && audit.requestIds[0]?.length > 0
+        && audit.requestIds[1]?.length > 0
+        && audit.requestIds[0] !== audit.requestIds[1]
+        && audit.statuses.every((status) => status === 201)
+        && audit.calculationIds[0]?.length > 0
+        && audit.calculationIds[0] === audit.calculationIds[1]
+        && audit.replayed[1] === "true"
+        && state.snapshot?.calculation_id === audit.calculationIds[1];
+    })()`,
+    "winch safe retry did not reuse the logical idempotency key and persisted calculation",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
 }
 
 async function verifyWinchMobileSafety(cdp, baseUrl) {
@@ -459,7 +558,10 @@ async function verifyGenericWorkbench(cdp, baseUrl) {
     window.__releaseCalculation();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#engineering-results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#engineering-results").dataset.state !== "loading" && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#engineering-results").dataset.state === "dirty"
@@ -480,7 +582,10 @@ async function verifyGenericWorkbench(cdp, baseUrl) {
     wrongInput.candidate_rated_output_torque_nm = 1200;
     const wrongResponse = await window.fetch("/api/v1/modules/transmission_check/calculations", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "fixture-generic-" + crypto.randomUUID(),
+      },
       body: JSON.stringify({input: wrongInput}),
     });
     if (!wrongResponse.ok) throw new Error("failed to create mismatched generic fixture");
@@ -495,7 +600,10 @@ async function verifyGenericWorkbench(cdp, baseUrl) {
     document.querySelector("#engineering-form").requestSubmit();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#engineering-results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#engineering-results").dataset.state !== "loading" && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#engineering-results").dataset.state === "dirty"
@@ -537,7 +645,10 @@ async function verifyGenericWorkbench(cdp, baseUrl) {
     window.__releaseCalculationFailure();
     return true;
   })()`);
-  await waitFor(cdp, 'document.querySelector("#engineering-results").dataset.state !== "loading"');
+  await waitFor(
+    cdp,
+    'document.querySelector("#engineering-results").dataset.state !== "loading" && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)',
+  );
   await assertPage(
     cdp,
     `document.querySelector("#engineering-results").dataset.state === "dirty"
@@ -546,6 +657,217 @@ async function verifyGenericWorkbench(cdp, baseUrl) {
     "generic workbench restored an old result after a failed request and defensive input mutation",
   );
   await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-results").dataset.state === "result"');
+  await cdp.evaluate(`(() => {
+    const key = "engineering.transmission_check.session.v1";
+    const state = JSON.parse(sessionStorage.getItem(key));
+    state.calculationModelVersion = "legacy-model-version";
+    sessionStorage.setItem(key, JSON.stringify(state));
+    return true;
+  })()`);
+  await navigate(cdp, `${baseUrl}/modules/transmission_check`);
+  await waitFor(cdp, 'document.readyState === "complete" && !document.querySelector("#engineering-form").hidden');
+  await assertPage(
+    cdp,
+    `(() => {
+      const state = JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1"));
+      return document.querySelector("#engineering-form").elements.basis_reference.value === state.input.basis_reference
+        && document.querySelector("#engineering-results").dataset.state === "dirty"
+        && document.querySelector("#engineering-result-content").hidden
+        && !document.querySelector("#engineering-html-report").hasAttribute("href")
+        && !document.querySelector("#engineering-pdf-report").hasAttribute("href")
+        && state.version === 3
+        && state.calculationModelVersion === document.body.dataset.calculationModelVersion
+        && state.snapshot === null;
+    })()`,
+    "generic workbench restored a snapshot from another calculation model version",
+  );
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    window.__realFetch = window.fetch;
+    window.__idempotencyAudit = {keys: [], requestIds: [], calculationIds: [], statuses: [], replayed: []};
+    window.fetch = async (url, options = {}) => {
+      if (!String(url).includes("/calculations")) return window.__realFetch(url, options);
+      const headers = new Headers(options.headers || {});
+      window.__idempotencyAudit.keys.push(headers.get("Idempotency-Key"));
+      window.__idempotencyAudit.requestIds.push(headers.get("X-Request-ID"));
+      const response = await window.__realFetch(url, options);
+      const data = await response.clone().json();
+      window.__idempotencyAudit.calculationIds.push(data.calculation_id || null);
+      window.__idempotencyAudit.statuses.push(response.status);
+      window.__idempotencyAudit.replayed.push(response.headers.get("Idempotency-Replayed"));
+      if (window.__idempotencyAudit.keys.length === 1) {
+        throw new TypeError("simulated response loss after persistence");
+      }
+      return response;
+    };
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-form-errors .engineering-error-retry")?.textContent === "安全重试本次计算"');
+  await cdp.evaluate('document.querySelector("#engineering-form-errors .engineering-error-retry").click(); true');
+  await waitFor(cdp, 'document.querySelector("#engineering-results").dataset.state === "result"');
+  await assertPage(
+    cdp,
+    `(() => {
+      const audit = window.__idempotencyAudit;
+      const state = JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1"));
+      return audit.keys.length === 2
+        && audit.keys[0]?.length > 0
+        && audit.keys[0] === audit.keys[1]
+        && audit.requestIds[0]?.length > 0
+        && audit.requestIds[1]?.length > 0
+        && audit.requestIds[0] !== audit.requestIds[1]
+        && audit.statuses.every((status) => status === 201)
+        && audit.calculationIds[0]?.length > 0
+        && audit.calculationIds[0] === audit.calculationIds[1]
+        && audit.replayed[1] === "true"
+        && state.snapshot?.calculation_id === audit.calculationIds[1];
+    })()`,
+    "generic safe retry did not reuse the logical idempotency key and persisted calculation",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response("<!doctype html><title>proxy error</title>", {
+          status: 502,
+          headers: {"Content-Type": "text/html", "X-Request-ID": "generic-html-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-form-errors").textContent.includes("generic-html-fixture")');
+  await assertPage(
+    cdp,
+    `document.querySelector("#engineering-form-errors").textContent.includes("非 JSON 响应")
+      && document.querySelector("#engineering-form-errors").textContent.includes("generic-html-fixture")
+      && document.querySelector("#engineering-form-errors .engineering-error-retry")?.textContent === "安全重试本次计算"
+      && document.querySelector("#engineering-results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1")).snapshot === null`,
+    "generic workbench did not expose and unlock after a retryable non-JSON response",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response("", {
+          status: 200,
+          headers: {"Content-Type": "application/json", "X-Request-ID": "generic-empty-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-form-errors").textContent.includes("generic-empty-fixture")');
+  await assertPage(
+    cdp,
+    `document.querySelector("#engineering-form-errors").textContent.includes("空响应")
+      && document.querySelector("#engineering-form-errors").textContent.includes("generic-empty-fixture")
+      && Boolean(document.querySelector("#engineering-form-errors .engineering-error-retry"))
+      && document.querySelector("#engineering-results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1")).snapshot === null`,
+    "generic workbench did not reject and identify an empty JSON response",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    window.__realFetch = window.fetch;
+    window.fetch = (...args) => String(args[0]).includes("/calculations")
+      ? Promise.resolve(new Response(JSON.stringify({
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "generic fixture service unavailable",
+            request_id: "generic-json-error-fixture",
+            details: [],
+          },
+        }), {
+          status: 503,
+          headers: {"Content-Type": "application/json", "X-Request-ID": "generic-json-header-fixture"},
+        }))
+      : window.__realFetch(...args);
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-form-errors").textContent.includes("generic-json-error-fixture")');
+  await assertPage(
+    cdp,
+    `document.querySelector("#engineering-form-errors").textContent.includes("generic fixture service unavailable")
+      && document.querySelector("#engineering-form-errors").textContent.includes("generic-json-error-fixture")
+      && !document.querySelector("#engineering-form-errors").textContent.includes("generic-json-header-fixture")
+      && Boolean(document.querySelector("#engineering-form-errors .engineering-error-retry"))
+      && document.querySelector("#engineering-results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1")).snapshot === null`,
+    "generic workbench did not parse a retryable JSON HTTP error with its request ID",
+  );
+  await cdp.evaluate('window.fetch = window.__realFetch; true');
+
+  await cdp.evaluate(`(() => {
+    document.querySelector("#engineering-load-sample").click();
+    window.__realFetch = window.fetch;
+    window.__realSetTimeout = window.setTimeout;
+    window.setTimeout = (handler, delay, ...args) => window.__realSetTimeout(handler, Math.min(delay, 40), ...args);
+    window.fetch = (url, options = {}) => String(url).includes("/calculations")
+      ? new Promise((resolve, reject) => {
+          if (options.signal?.aborted) {
+            reject(new DOMException("aborted", "AbortError"));
+            return;
+          }
+          options.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            {once: true},
+          );
+        })
+      : window.__realFetch(url, options);
+    document.querySelector("#engineering-form").requestSubmit();
+    return true;
+  })()`);
+  await waitFor(cdp, 'document.querySelector("#engineering-form-errors").textContent.includes("请求超时")');
+  await assertPage(
+    cdp,
+    `document.querySelector("#engineering-form-errors").textContent.includes("请求超时")
+      && document.querySelector("#engineering-form-errors").textContent.includes("本次逻辑提交保留了幂等键")
+      && document.querySelector("#engineering-form-errors .engineering-error-context code")?.textContent.length > 0
+      && document.querySelector("#engineering-form-errors .engineering-error-retry")?.textContent === "安全重试本次计算"
+      && document.querySelector("#engineering-results").dataset.state === "dirty"
+      && Array.from(document.querySelector("#engineering-form").elements).every((control) => !control.disabled)
+      && JSON.parse(sessionStorage.getItem("engineering.transmission_check.session.v1")).snapshot === null`,
+    "generic timeout did not abort, unlock, retain dirty state, and offer a traceable safe retry",
+  );
+  await cdp.evaluate(`(() => {
+    window.fetch = window.__realFetch;
+    window.setTimeout = window.__realSetTimeout;
+    return true;
+  })()`);
+  await cdp.evaluate(`(() => {
+    const field = document.querySelector("#engineering-form").elements.basis_reference;
+    field.value = field.value + " changed";
+    field.dispatchEvent(new Event("input", {bubbles: true}));
+    return true;
+  })()`);
+  await assertPage(
+    cdp,
+    `!document.querySelector("#engineering-form-errors .engineering-error-retry")
+      && !document.querySelector("#engineering-form-errors").textContent.includes("本次逻辑提交保留了幂等键")`,
+    "generic workbench retained a stale safe-retry action after the form changed",
+  );
 }
 
 async function navigate(cdp, url) {

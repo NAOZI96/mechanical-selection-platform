@@ -3,6 +3,7 @@
 const root = document.querySelector("[data-engineering-workbench]");
 const moduleId = root?.dataset.moduleId;
 const moduleName = root?.dataset.moduleName || moduleId;
+const currentCalculationModelVersion = root?.dataset.calculationModelVersion || "";
 const form = document.querySelector("#engineering-form");
 const fieldsRoot = document.querySelector("#engineering-fields");
 const schemaLoading = document.querySelector("#schema-loading");
@@ -27,6 +28,7 @@ let resultLabels = {};
 let uncheckedLabels = {};
 let assumptionLabels = {};
 let exampleInput = {};
+let pendingSubmission = null;
 
 const classificationLabels = {
   calculated: "理论计算值",
@@ -201,16 +203,21 @@ form?.addEventListener("submit", async (event) => {
   }
   const previousState = resultState;
   let submittedInput = null;
+  let logicalSubmission = null;
   setResultState("loading");
   setFormLocked(true);
   try {
     const input = readInput();
     submittedInput = cloneJson(input);
+    logicalSubmission = reuseOrCreateSubmission(submittedInput);
     const data = await fetchJson(
       `/api/v1/modules/${encodeURIComponent(moduleId)}/calculations`,
       {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": logicalSubmission.idempotencyKey,
+        },
         body: JSON.stringify({input}),
       },
       20000,
@@ -221,10 +228,11 @@ form?.addEventListener("submit", async (event) => {
     }
     renderSnapshot(data);
     saveSessionState(submittedInput, data, submittedInput);
+    clearPendingSubmission();
   } catch (error) {
-    if (!error?.details) {
-      showFormError(error instanceof Error ? error.message : "无法连接计算服务。");
-    }
+    if (!error?.retryable) clearPendingSubmission();
+    if (error?.details?.length) showApiErrors(error);
+    else showRequestError(error);
     restoreStateAfterFailedRequest(previousState, submittedInput);
   } finally {
     setFormLocked(false);
@@ -232,6 +240,7 @@ form?.addEventListener("submit", async (event) => {
 });
 
 loadSampleButton?.addEventListener("click", () => {
+  clearPendingSubmission();
   invalidateCurrentSnapshot();
   form.reset();
   form.querySelectorAll("[name]").forEach((control) => {
@@ -254,6 +263,7 @@ loadSampleButton?.addEventListener("click", () => {
 
 clearButton?.addEventListener("click", () => {
   if (!window.confirm("确认清空当前模块参数和本标签页中的最近结果吗？已保存的报告不会删除。")) return;
+  clearPendingSubmission();
   form.reset();
   clearErrors();
   window.sessionStorage.removeItem(sessionKey);
@@ -266,7 +276,9 @@ document.querySelector("#engineering-back-to-input")?.addEventListener("click", 
   form.querySelector("input, select, textarea")?.focus({preventScroll: true});
 });
 
-form?.addEventListener("input", () => {
+function handleFormMutation() {
+  clearPendingSubmission();
+  clearRetryAction();
   invalidateCurrentSnapshot();
   validateClientConstraints();
   try {
@@ -274,9 +286,19 @@ form?.addEventListener("input", () => {
   } catch {
     // Incomplete numeric input is expected while the user is editing.
   }
-});
+}
+
+function clearRetryAction() {
+  formErrors.querySelector(".engineering-error-retry")?.remove();
+  const context = formErrors.querySelector(".engineering-error-context");
+  if (context?.textContent.includes("本次逻辑提交保留了幂等键")) context.remove();
+}
+
+form?.addEventListener("input", handleFormMutation);
+form?.addEventListener("change", handleFormMutation);
 
 function discardMismatchedResponse(message) {
+  clearPendingSubmission();
   invalidateCurrentSnapshot();
   saveSessionState(readInput());
   setResultState("dirty");
@@ -298,7 +320,12 @@ function restoreStateAfterFailedRequest(previousState, submittedInput) {
     setResultState("dirty");
     return;
   }
-  setResultState(previousState);
+  if (previousState === "result") {
+    setResultState("result");
+    return;
+  }
+  saveSessionState(currentInput);
+  setResultState("dirty");
 }
 
 function responseMatchesRequest(snapshot, submittedInput) {
@@ -560,7 +587,11 @@ function clearErrors() {
 
 function showApiErrors(error) {
   const details = error?.details || [];
-  showFormError(error?.message || "输入未通过校验。", details);
+  showFormError(
+    error?.message || "输入未通过校验。",
+    details,
+    {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+  );
   let firstInvalidControl = null;
   details.forEach((detail) => {
     const fieldParts = String(detail.field || "").split(".").filter(Boolean);
@@ -581,7 +612,7 @@ function showApiErrors(error) {
   firstInvalidControl?.focus();
 }
 
-function showFormError(message, details = []) {
+function showFormError(message, details = [], {requestId = "", retryable = false} = {}) {
   formErrors.replaceChildren();
   const summary = document.createElement("strong");
   summary.textContent = message;
@@ -595,9 +626,44 @@ function showFormError(message, details = []) {
     });
     formErrors.append(list);
   }
+  if (requestId || retryable) {
+    const context = document.createElement("p");
+    context.className = "engineering-error-context";
+    if (retryable) {
+      context.append("当前页面未收到可用的新快照。本次逻辑提交保留了幂等键，可安全重试；请保留请求 ID 以便核查。");
+    }
+    if (requestId) {
+      if (retryable) context.append(" ");
+      context.append("请求 ID：");
+      const code = document.createElement("code");
+      code.textContent = requestId;
+      context.append(code);
+    }
+    formErrors.append(context);
+  }
+  if (retryable) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "button button--secondary engineering-error-retry";
+    retry.textContent = "安全重试本次计算";
+    retry.addEventListener("click", () => {
+      if (!pendingSubmission) return;
+      retry.disabled = true;
+      form.requestSubmit();
+    });
+    formErrors.append(retry);
+  }
   formErrors.tabIndex = -1;
   formErrors.hidden = false;
   if (!details.length) formErrors.focus();
+}
+
+function showRequestError(error) {
+  showFormError(
+    error instanceof Error ? error.message : "无法连接计算服务。",
+    [],
+    {requestId: error?.requestId, retryable: Boolean(error?.retryable)},
+  );
 }
 
 function showFatal(message) {
@@ -643,32 +709,82 @@ function scrollBehavior() {
 
 async function fetchJson(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
+  const clientRequestId = createOpaqueId("request");
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {...options, signal: controller.signal});
+    const response = await fetch(url, {
+      ...options,
+      headers: {...(options.headers || {}), "X-Request-ID": clientRequestId},
+      signal: controller.signal,
+    });
+    const headerRequestId = response.headers.get("x-request-id") || clientRequestId;
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      throw new Error("服务返回了无法识别的响应，请稍后重试。");
+    if (!contentType.toLowerCase().includes("application/json")) {
+      throw requestError("服务返回了非 JSON 响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
     }
-    const data = await response.json();
+    const responseText = await response.text();
+    if (!responseText.trim()) {
+      throw requestError("服务返回了空响应，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw requestError("服务返回了无效 JSON，请稍后重试。", {
+        requestId: headerRequestId,
+        retryable: true,
+        status: response.status,
+      });
+    }
     if (!response.ok) {
-      if (response.status === 422) {
-        const validationError = new Error(data?.error?.message || "输入未通过校验。");
-        validationError.details = data?.error;
-        throw validationError;
-      }
-      throw new Error(data?.error?.message || `请求失败（${response.status}）`);
+      const apiError = data?.error || {};
+      throw requestError(apiError.message || `请求失败（HTTP ${response.status}）。`, {
+        details: Array.isArray(apiError.details)
+          ? apiError.details.filter((detail) => detail && typeof detail === "object")
+          : [],
+        requestId: apiError.request_id || headerRequestId,
+        retryable: isRetryableHttpStatus(response.status),
+        status: response.status,
+      });
     }
     return data;
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("请求超时，请检查网络后重试。");
-    if (error?.details) {
-      showApiErrors(error.details);
+    if (error?.name === "AbortError") {
+      throw requestError("请求超时，请检查网络或服务状态后安全重试。", {
+        requestId: clientRequestId,
+        retryable: true,
+      });
     }
-    throw error;
+    if (error?.isRequestError) throw error;
+    throw requestError("无法连接计算服务，请确认应用仍在运行。", {
+      requestId: clientRequestId,
+      retryable: true,
+    });
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function requestError(message, {details = [], requestId = "", retryable = false, status = null} = {}) {
+  const error = new Error(message);
+  error.details = details;
+  error.requestId = requestId;
+  error.retryable = retryable;
+  error.status = status;
+  error.isRequestError = true;
+  return error;
+}
+
+function isRetryableHttpStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 function formatValue(value) {
@@ -685,7 +801,13 @@ function formatValue(value) {
 
 function saveSessionState(input, snapshot = null, snapshotInput = null) {
   try {
-    window.sessionStorage.setItem(sessionKey, JSON.stringify({version: 2, input, snapshot, snapshotInput}));
+    window.sessionStorage.setItem(sessionKey, JSON.stringify({
+      version: 3,
+      calculationModelVersion: currentCalculationModelVersion,
+      input,
+      snapshot,
+      snapshotInput,
+    }));
   } catch (error) {
     console.warn("无法保存当前模块会话。", error);
   }
@@ -696,7 +818,7 @@ function readSessionState() {
     const raw = window.sessionStorage.getItem(sessionKey);
     if (!raw) return null;
     const state = JSON.parse(raw);
-    return state?.version === 2 && state.input && typeof state.input === "object" ? state : null;
+    return [2, 3].includes(state?.version) && state.input && typeof state.input === "object" ? state : null;
   } catch {
     return null;
   }
@@ -711,8 +833,17 @@ function restoreSessionState() {
     if (control.type === "checkbox") control.checked = Boolean(value);
     else control.value = formatControlValue(control, value);
   });
-  if (state.snapshot?.module_id === moduleId && sameJson(state.input, state.snapshotInput)) {
+  const versionMatches = state.version === 3
+    && state.calculationModelVersion === currentCalculationModelVersion
+    && state.snapshot?.calculation_model_version === currentCalculationModelVersion;
+  if (versionMatches && state.snapshot?.module_id === moduleId && sameJson(state.input, state.snapshotInput)) {
     renderSnapshot(state.snapshot, {focus: false});
+  } else {
+    clearReportLinks();
+    if (state.snapshot || state.version !== 3 || state.calculationModelVersion !== currentCalculationModelVersion) {
+      saveSessionState(state.input || {});
+    }
+    setResultState("dirty");
   }
 }
 
@@ -726,4 +857,26 @@ function cloneJson(value) {
 
 function sameJson(left, right) {
   return Boolean(left && right) && JSON.stringify(left) === JSON.stringify(right);
+}
+
+function reuseOrCreateSubmission(input) {
+  if (pendingSubmission && sameCanonicalJson(pendingSubmission.input, input)) return pendingSubmission;
+  pendingSubmission = {
+    idempotencyKey: createOpaqueId(moduleId || "engineering"),
+    input: canonicalJson(input),
+  };
+  return pendingSubmission;
+}
+
+function clearPendingSubmission() {
+  pendingSubmission = null;
+}
+
+function createOpaqueId(prefix) {
+  if (typeof window.crypto?.randomUUID === "function") return `${prefix}-${window.crypto.randomUUID()}`;
+  if (typeof window.crypto?.getRandomValues === "function") {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    return `${prefix}-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  throw new Error("当前浏览器无法生成安全请求标识，请升级浏览器后重试。");
 }
