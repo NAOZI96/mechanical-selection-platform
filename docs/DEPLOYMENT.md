@@ -1,9 +1,9 @@
 # 部署设计
 
-文档版本：0.5.3
+文档版本：0.5.4
 
 目标：腾讯云 Ubuntu 24.04.4 LTS，2 核、1.9 GB 内存、约 10 GB Swap、50 GB 系统盘
-状态：Phase 4 首发模块目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁。当前 Platform 0.5.3 九模块候选版包含迁移 `005_calculation_release_status.sql` 与 `006_calculation_idempotency.sql`，仅完成本地实现与回归，未执行远程部署、数据库迁移或目标机资源复验。
+状态：Phase 4 首发模块目标机回环部署、容器实测和恢复演练已通过；公共 Caddy 代理与 TLS 已配置，域名在中国大陆服务器上的备案/接入状态仍须在腾讯云控制台关闭门禁。当前 Platform 0.5.4 九模块候选版包含迁移 `005_calculation_release_status.sql`、`006_calculation_idempotency.sql` 与受控 PDF 下载交互，仅完成本地实现与回归，未执行远程部署、数据库迁移或目标机资源复验。
 
 ## 1. 部署边界
 
@@ -153,7 +153,7 @@ curl --fail http://127.0.0.1:${DESIGN_AGENT_BIND_PORT:-18080}/health/ready
 
 ## 13. 当前九模块候选版部署边界
 
-当前 Platform 0.5.3 候选版包含 `transmission_check`、`gear_drive`、`shaft_bearing`、`lead_screw`、`synchronous_belt`、`motor_drive`、`stepper_motor` 和 `pneumatic_cylinder`，并完成产品主页、CSP-safe 文档、安全/缓存头、发布状态快照治理与可选计算幂等契约，但仍只完成本地软件实现：
+当前 Platform 0.5.4 候选版包含 `transmission_check`、`gear_drive`、`shaft_bearing`、`lead_screw`、`synchronous_belt`、`motor_drive`、`stepper_motor` 和 `pneumatic_cylinder`，并完成产品主页、CSP-safe 文档、安全/缓存头、发布状态快照治理、可选计算幂等契约与受控 PDF 下载交互，但仍只完成本地软件实现：
 
 - 沿用通用 JSON 快照和报告表，不增加模块专属列；迁移清单新增通用 `005_calculation_release_status.sql` 与 `006_calculation_idempotency.sql`；
 - 新计算写入 snapshot schema v4 / report context schema v4；报告模板为 `winch_drum.report.1.2.1` 和八模块 `*.report.1.0.1`，计算模型为 `winch_drum.calc.1.2.1` 和八模块各自 `*.calc.1.0.1`；

@@ -10,7 +10,7 @@
 
 Phase 7 的 8 个扩展模块复用完全相同的通用表和版本化 JSON 快照，不增加模块专属列。Phase 8 通过通用迁移 `005_calculation_release_status.sql` 增加可空发布状态列：新计算冻结注册表中的当次状态，迁移前旧记录保留 `NULL` 并读取为 `legacy_unknown`，不得按当前注册表回填。Platform 0.5.3 再通过 `006_calculation_idempotency.sql` 增加可空幂等元数据与 `(module_id, idempotency_key)` 部分唯一索引；旧记录和不带键的新请求均保持空值。
 
-文档版本：0.5.3
+文档版本：0.5.4
 数据库：SQLite  
 原则：通用元数据列 + 版本化 JSON 快照，不为每个模块不断增加业务列
 

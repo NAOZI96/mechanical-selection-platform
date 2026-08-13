@@ -9,7 +9,7 @@
 - 机械计算审核：`conditional_pass`（仅适用于已完成条件审核的首发模块范围）
 - 产品范围确认：`confirmed`
 - 首发模块软件验收：`pass`（本地与目标 Docker 主机的功能、报告、资源、备份和恢复门禁通过）
-- Platform 0.5.3 软件验收：`local_pass`（九模块产品界面/API/schema v4/HTML/PDF/旧数据兼容及可选计算幂等已实现，154 项本地回归与隔离真实 Chrome 状态回归已通过）
+- Platform 0.5.4 软件验收：`local_pass`（九模块产品界面/API/schema v4/HTML/PDF/旧数据兼容、可选计算幂等及受控 PDF 下载已实现，156 项本地回归与隔离真实 Chrome 状态回归已通过）
 - 当前九模块候选版远程部署：`not_deployed`
 - 质量与安全发布：`internal_only`
 - 总发布状态：`internal_testing`
@@ -40,4 +40,4 @@
 - 软件/运维：目标库在线备份与受控迁移至 `006`、九模块版本目标主机资源、幂等重放/冲突、正常计算日志、备份恢复、遗留 PDF 缓存、PDF 并发和既有服务影响复验。
 - 公网：ICP 首次备案/接入或新增服务关闭后，重新验证国内外 HTTPS、搜索引擎抓取和外部监控。
 
-当前 Platform 0.5.3 候选版包含可空迁移 `005_calculation_release_status.sql` 与 `006_calculation_idempotency.sql`，但没有新增常驻服务或改变工程公式、SI 口径、计算/报告模型及两个 schema v4，也没有执行远程部署。既有 Phase 4 验收仅证明当时采用迁移 `001`～`004` 的首发模块镜像，不能被解释为迁移 `005`、`006` 或当前九模块候选版已经远程放行。
+当前 Platform 0.5.4 候选版包含可空迁移 `005_calculation_release_status.sql`、`006_calculation_idempotency.sql` 与受控 PDF 下载交互，但没有新增常驻服务或改变工程公式、SI 口径、计算/报告模型及两个 schema v4，也没有执行远程部署。既有 Phase 4 验收仅证明当时采用迁移 `001`～`004` 的首发模块镜像，不能被解释为迁移 `005`、`006` 或当前九模块候选版已经远程放行。
