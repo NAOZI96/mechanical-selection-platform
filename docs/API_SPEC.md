@@ -1,6 +1,6 @@
 # API 规格
 
-文档版本：0.5.3
+文档版本：0.5.4
 API 版本：`v1`  
 已注册模块：`winch_drum` + 8 个 Phase 7 受控工程工作表
 
@@ -192,6 +192,8 @@ API 版本：`v1`
 
 HTML 报告按快照中的 `module_id` 返回对应计算页，并提供下载同一计算记录 PDF 的明确入口。HTML/PDF 从计算时持久化的同一份未舍入报告 DTO 渲染，包含原始/SI 输入、关键结果、公式、来源、警告、版本和免责声明；`winch_drum` 另含逐层容量表。面向用户的字段、结果等级、来源状态和专项校核项使用中文展示。公式审计按公式编号、表达式、代入值和结果分层显示，展示优化不改变保存的表达式、变量或计算值。PDF 使用固定字体/模板版本，生成文件经大小、SHA-256、原子落盘和缓存完整性校验。
 
+Platform 0.5.4 的 HTML 报告通过同源脚本请求 PDF，并发送独立 `X-Request-ID`。只有 `200 application/pdf`、响应体非空且文件头为 `%PDF-` 时才触发浏览器下载；`409/429/503`、非 PDF、空/无效响应、网络中断或页面等待超时均保留当前 HTML 报告，展示错误码、正文或响应头中的请求 ID，以及适用时的 `Retry-After`。重试只重新读取/生成同一计算记录的 PDF，不创建新计算快照。脚本不可用或用户直接导航 PDF URL 时，`Accept` 包含 `text/html` 的受控报告错误返回品牌 HTML 页面和返回报告入口；API/脚本请求仍返回统一 JSON 错误结构，受控错误响应带 `Vary: Accept`。
+
 新计算的 snapshot schema 和 report context schema 均为 v4，并保存计算当时的 `release_status`。迁移前旧行的发布状态读取为 `legacy_unknown`：
 
 - HTML 报告仍可读取旧 DTO，或在旧记录没有 DTO 时仅从已保存快照映射展示；不得重新运行计算器，并统一按“未记录（按内部测试边界处理）”显示。
@@ -288,6 +290,7 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `snapshot_schema_version=4` 与报告上下文 `schema_version=4` 表示已冻结计算时发布状态；版本升级不触发旧快照重算。
 - 当前报告模板版本为 `winch_drum.report.1.2.1`，八个扩展模块分别为对应的 `*.report.1.0.1`；模板版本参与 PDF artifact 缓存键。
 - Platform 0.5.3 的幂等创建是向后兼容的可选 HTTP 能力；迁移 `006` 只增加幂等持久化元数据和唯一约束，计算/报告模型版本及两个 schema v4 均保持不变。
+- Platform 0.5.4 只增强 HTML 报告的 PDF 下载与错误回退，不改变 PDF API 成功体、计算/报告模型版本、快照、报告 DTO 或模板版本。
 - 增加可选字段可保持 API v1；改变字段语义、公式或默认值必须更新计算模型版本，并保留读取旧快照能力。
 - 八个扩展模块均使用相同通用端点；每个模块的专属输入/结果由其注册 Pydantic schema 决定。需求、公式和证据见 [`MODULE_REQUIREMENTS.md`](MODULE_REQUIREMENTS.md)、[`EXPANDED_MODULES_CALCULATION_SPEC.md`](EXPANDED_MODULES_CALCULATION_SPEC.md) 和 [`EXPANDED_FORMULA_TEST_MATRIX.md`](EXPANDED_FORMULA_TEST_MATRIX.md)。
 
@@ -301,4 +304,5 @@ HTML/PDF 使用独立报告 DTO，字段包括：
 - `/docs` 和 `/redoc` 在严格 CSP 下可读且没有内联/外部脚本；安全头与三类缓存策略逐路由验证。
 - 新快照保存计算时发布状态；`legacy_unknown` 的有效缓存 PDF 可读，无有效缓存时稳定返回 `409` 且不启动渲染器。
 - 验证首次幂等创建返回 `Idempotency-Replayed: false`，同键同规范请求重放同一快照并返回 `true`，同键异请求返回 `409 IDEMPOTENCY_KEY_REUSED`，不同模块可独立使用同一键，无键请求继续产生不同 calculation ID。
+- HTML 报告的 PDF 下载失败不得离开当前报告页；须展示 `Retry-After`/请求 ID 并可重试。直接浏览器导航的受控 PDF 失败须返回带报告返回入口的 HTML，API 客户端仍返回 JSON。
 - 模块发现精确返回 9 个注册 ID 及上述发布状态；每个模块的页面、schema、POST、GET、HTML 和 PDF 路径均有本地回归。

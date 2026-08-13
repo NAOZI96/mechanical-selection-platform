@@ -2,7 +2,7 @@
 
 面向机械设计人员的轻量级、可审计计算与初选平台。项目使用确定性 Python 代码执行工程计算，保留输入、单位换算、公式步骤、模型版本、假设、警告与报告，帮助工程师进行方案比较和初步选型。
 
-> 当前状态：Platform 0.5.3 已在本地注册 9 个确定性计算模块。`winch_drum` 处于 `engineering_review`；新增的 8 个受控工程工作表处于 `internal_testing`，已具备可直接试用的产品界面、统一 API、不可变快照及同源 HTML/PDF 报告，但尚未完成制造、采购或安全工程放行。既有 `winch_drum` 版本已完成目标主机回环部署；当前九模块候选版及最新迁移 `006_calculation_idempotency.sql` 尚未远程部署，公共 Caddy/TLS 仍受 ICP 备案/接入门禁阻断。
+> 当前状态：Platform 0.5.4 已在本地注册 9 个确定性计算模块。`winch_drum` 处于 `engineering_review`；新增的 8 个受控工程工作表处于 `internal_testing`，已具备可直接试用的产品界面、统一 API、不可变快照及同源 HTML/PDF 报告，但尚未完成制造、采购或安全工程放行。既有 `winch_drum` 版本已完成目标主机回环部署；当前九模块候选版及最新迁移 `006_calculation_idempotency.sql` 尚未远程部署，公共 Caddy/TLS 仍受 ICP 备案/接入门禁阻断。
 
 ## 项目目标
 
@@ -90,6 +90,7 @@ Phase 7 新增 8 个 `internal_testing` 受控工程工作表：
 - [x] Phase 6：完成差异化品牌、SEO/爬虫基础、HTML 404、HEAD 探针、公网反向代理和 D/d 高风险校核。
 - [x] Phase 7：完成八个受控工程工作表的软件实现、注册、统一页面/API/快照/HTML/PDF 接入和本地回归。
 - [x] Phase 8：完成九模块产品化目录筛选、CSP-safe API 文档、安全/缓存响应头、发布状态快照治理及旧报告兼容边界。
+- [x] Phase 9：完成 HTML 报告受控 PDF 下载、页面内错误/重试状态及无脚本品牌错误回退。
 - [ ] Phase 7 工程门禁：逐模块确认标准版本、项目系数、制造商候选数据、独立复算和机械审核，再逐项提升发布状态。
 - [ ] Phase 8 部署门禁：备份目标库、受控应用迁移至 `006`，再完成九模块候选版的目标机功能、资源、恢复与既有服务影响复验。
 - [ ] 公网门禁：由域名主体完成或确认腾讯云 ICP 首次备案、接入备案或新增服务，再复测国内外 HTTPS、搜索引擎抓取和外部监控。
@@ -127,6 +128,7 @@ python -m venv .venv
 node --check app/static/calculator.js
 node --check app/static/engineering-calculator.js
 node --check app/static/home-animation.js
+node --check app/static/report-download.js
 node --check scripts/verify_calculation_state.mjs
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -137,7 +139,7 @@ node --check scripts/verify_calculation_state.mjs
 node scripts/verify_calculation_state.mjs
 ```
 
-该脚本自动用临时 SQLite、报告目录和随机回环端口启动/销毁隔离服务，在 Headless Chrome 中复现“计算 A 后修改为 B”、错误成功响应和请求失败竞态，验证金样完整重置、旧快照/报告链接失效、请求期间表单锁定及响应/输入配对，不向常用数据库写测试快照。Node.js 需支持内置 `WebSocket`（CI 使用 Node 22）；若 Chrome 或 Python 不在常见路径，分别通过 `CHROME_PATH`、`DESIGN_AGENT_PYTHON` 指定。GitHub Actions 在临时目录执行该隔离脚本，并检查 Compose 配置及构建候选镜像；仅在明确接受写入目标服务测试记录时，才可使用 `node scripts/verify_calculation_state.mjs <URL> --allow-persistent-test-data`。
+该脚本自动用临时 SQLite、报告目录和随机回环端口启动/销毁隔离服务，在 Headless Chrome 中复现“计算 A 后修改为 B”、错误成功响应、请求失败竞态和 PDF 下载失败/成功，验证金样完整重置、旧快照/报告链接失效、请求期间表单锁定、响应/输入配对，以及 PDF 错误不离开 HTML 报告页，不向常用数据库写测试快照。Node.js 需支持内置 `WebSocket`（CI 使用 Node 22）；若 Chrome 或 Python 不在常见路径，分别通过 `CHROME_PATH`、`DESIGN_AGENT_PYTHON` 指定。GitHub Actions 在临时目录执行该隔离脚本，并检查 Compose 配置及构建候选镜像；仅在明确接受写入目标服务测试记录时，才可使用 `node scripts/verify_calculation_state.mjs <URL> --allow-persistent-test-data`。
 
 当前已实现：
 
@@ -170,15 +172,15 @@ node scripts/verify_calculation_state.mjs
 - 结果页明确区分“当前方案不可行”“参数存在高风险”和待校核项，不将局部容量满足表述为整机合格；
 - 差异化品牌、首页工程定位、canonical、Open Graph、favicon、`robots.txt`、`sitemap.xml`、HEAD 和 HTML 404；
 - 绳索、载荷和环境记录采用中文默认值及可自定义的中文备选词库；
-- 报告提供返回计算页与 PDF 下载入口，字段/等级/来源中文展示，公式按表达式、代入值和结果分层呈现；
+- 报告提供返回计算页与受控 PDF 下载入口：页面内下载失败不会离开 HTML 报告，会显示错误码、重试等待和请求 ID；无 JavaScript 的浏览器导航失败时返回可回到 HTML 报告的品牌错误页。字段/等级/来源中文展示，公式按表达式、代入值和结果分层呈现；
 - `winch_drum` 37 个公式 ID 的可追溯测试矩阵，以及八模块独立公式矩阵；
-- 当前候选版 154 项本地回归全部通过，覆盖金样、边界、派生数值安全、公式库存防漂移、产品目录、API 文档、安全头、受控 500 错误页、schema v4、迁移 `005`/`006`、幂等顺序与并发重放、数据库约束、旧报告兼容、PDF 和模块契约。
+- 当前候选版 156 项本地回归全部通过，覆盖金样、边界、派生数值安全、公式库存防漂移、产品目录、API 文档、安全头、受控错误页、schema v4、迁移 `005`/`006`、幂等顺序与并发重放、数据库约束、旧报告兼容、PDF 下载失败回退和模块契约。
 
 本地资源基线：1000 次计算无错误，计算 p95 30.489 ms；连续 20 份 PDF 无错误，p95 594.880 ms；5 个并发 PDF 请求为 1 个成功、4 个受控 `429`；父进程与渲染子进程合计峰值 RSS 149,626,880 B，结束后无临时文件。
 
 目标 Docker 主机基线：1000 次计算 p95 23.895 ms，20 份 PDF p95 1.108 s，5 并发仍为 1×`200` + 4×`429`；Web cgroup 峰值 186,097,664 B、交换区 0、无 OOM/重启，在线备份与隔离恢复通过。完整证据见 [Phase 4 验收记录](docs/PHASE4_ACCEPTANCE.md)。
 
-以上目标机基线来自既有 `winch_drum` 部署，不代表当前 Platform 0.5.3 九模块候选版已经远程部署或完成目标机资源复验。当前候选版在 `005_calculation_release_status.sql` 之后新增 `006_calculation_idempotency.sql`；部署前必须先做 SQLite 在线备份并受控迁移至 `006`。幂等能力没有改变工程公式、SI 口径、计算模型、snapshot schema v4、report context schema v4 或报告模板版本，也没有新增常驻服务。
+以上目标机基线来自既有 `winch_drum` 部署，不代表当前 Platform 0.5.4 九模块候选版已经远程部署或完成目标机资源复验。当前候选版在 `005_calculation_release_status.sql` 之后新增 `006_calculation_idempotency.sql`；部署前必须先做 SQLite 在线备份并受控迁移至 `006`。幂等与 PDF 下载交互能力没有改变工程公式、SI 口径、计算模型、snapshot schema v4、report context schema v4 或报告模板版本，也没有新增常驻服务。
 
 ## 免责声明
 
