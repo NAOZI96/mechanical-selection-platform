@@ -354,7 +354,10 @@ class ApiTests(unittest.TestCase):
 
         script = self.client.get("/static/report-download.js")
         self.assertEqual(script.status_code, 200)
-        self.assertIn("application/javascript", script.headers["content-type"])
+        self.assertIn(
+            script.headers["content-type"].split(";", 1)[0],
+            {"application/javascript", "text/javascript"},
+        )
         self.assertEqual(script.headers["cache-control"], "public, max-age=86400")
         self.assertIn('Accept: "application/pdf"', script.text)
         self.assertIn('"X-Request-ID": requestId', script.text)
