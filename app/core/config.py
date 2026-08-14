@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -114,11 +115,10 @@ class Settings:
                 files: set[Path] = set()
                 for suffix in ("", "-wal", "-shm"):
                     candidate = Path(f"{self.database_path}{suffix}")
-                    if candidate.is_file():
-                        files.add(candidate.resolve())
+                    files.add(candidate.resolve())
                 if self.reports_dir.is_dir():
-                    files.update(path.resolve() for path in self.reports_dir.rglob("*") if path.is_file())
-                used_bytes = sum(path.stat().st_size for path in files)
+                    files.update(path.resolve() for path in self.reports_dir.rglob("*"))
+                used_bytes = sum(_regular_file_size(path) for path in files)
             except OSError:
                 used_bytes = self.persistent_capacity_bytes
             self._capacity_cache.update(checked_at=now, used_bytes=used_bytes)
@@ -150,3 +150,13 @@ def _nearest_existing_path(path: Path) -> Path:
     while not candidate.exists() and candidate != candidate.parent:
         candidate = candidate.parent
     return candidate
+
+
+def _regular_file_size(path: Path) -> int:
+    """Return a file's size while tolerating concurrent temporary-file cleanup."""
+
+    try:
+        file_stat = path.stat()
+    except FileNotFoundError:
+        return 0
+    return file_stat.st_size if stat.S_ISREG(file_stat.st_mode) else 0
