@@ -120,6 +120,59 @@ class ReportFailureAndLimitTests(unittest.TestCase):
         self.assertFalse(settings.allows_pdf_write())
         self.assertTrue(settings.allows_calculation_write())
 
+    def test_transient_report_cleanup_does_not_trigger_capacity_limit(self) -> None:
+        root = Path(self.temporary_directory.name) / "transient-report"
+        reports_dir = root / "reports"
+        reports_dir.mkdir(parents=True)
+        stable_report = reports_dir / "stable.pdf"
+        transient_report = reports_dir / ".tmp" / "finished.pdf"
+        transient_report.parent.mkdir()
+        stable_report.write_bytes(b"s" * 100)
+        transient_report.write_bytes(b"t" * 100)
+        settings = Settings(
+            database_path=root / "database.sqlite3",
+            reports_dir=reports_dir,
+            pdf_max_size_bytes=100,
+            persistent_capacity_bytes=1_000,
+            persistent_stop_fraction=0.85,
+            persistent_min_free_bytes=0,
+        )
+        original_stat = Path.stat
+        transient_report_resolved = transient_report.resolve()
+
+        def stat_with_concurrent_cleanup(path: Path, *args: object, **kwargs: object):
+            if path == transient_report_resolved:
+                raise FileNotFoundError(path)
+            return original_stat(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", new=stat_with_concurrent_cleanup):
+            self.assertEqual(settings.persistent_used_bytes(refresh=True), 100)
+            self.assertTrue(settings.allows_pdf_write())
+
+    def test_capacity_scan_fails_closed_on_permission_error(self) -> None:
+        root = Path(self.temporary_directory.name) / "unreadable-report"
+        reports_dir = root / "reports"
+        reports_dir.mkdir(parents=True)
+        unreadable_report = reports_dir / "unreadable.pdf"
+        unreadable_report.write_bytes(b"report")
+        settings = Settings(
+            database_path=root / "database.sqlite3",
+            reports_dir=reports_dir,
+            persistent_capacity_bytes=1_000,
+            persistent_min_free_bytes=0,
+        )
+        original_stat = Path.stat
+        unreadable_report_resolved = unreadable_report.resolve()
+
+        def stat_with_permission_error(path: Path, *args: object, **kwargs: object):
+            if path == unreadable_report_resolved:
+                raise PermissionError(path)
+            return original_stat(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", new=stat_with_permission_error):
+            self.assertEqual(settings.persistent_used_bytes(refresh=True), 1_000)
+            self.assertFalse(settings.allows_pdf_write())
+
     def test_legacy_snapshot_is_labeled_and_uncached_pdf_requires_recalculation(self) -> None:
         created = self._create()
         legacy_context = dict(created["report_context"])
